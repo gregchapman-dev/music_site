@@ -1,6 +1,3 @@
-
-# A very simple Flask Hello World app for you to get started with...
-
 from flask import Flask, redirect, render_template, request, url_for
 from flask_sqlalchemy import SQLAlchemy
 
@@ -39,6 +36,9 @@ def index():
     db.session.add(comment)
     db.session.commit()
 
-    # refresh main page (to add the new comment to the view)
+    # redirect to the main/index page (to add the new comment to the view)
     return redirect(url_for('index'))
 
+@app.route('/login/')
+def login():
+    return render_template('login_page.html')
