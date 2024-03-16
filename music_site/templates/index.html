@@ -1,0 +1,25 @@
+<html lang="en">
+<head>
+    <link
+        rel="stylesheet"
+        href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css"
+        integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ=="
+        crossorigin="anonymous">
+    <script src="node_modules/music21j/build/music21.debug.js" defer></script>
+    <script src="scripts/script.js" defer></script>
+    <title>music21 test</title>
+</head>
+<body>
+    <h1>Test Site</h1>
+    <input
+          type="file"
+          id="fileElem"
+          accept=".musicxml,.xml,.mxl,.krn,.mei"
+          style="display:none" />
+    <button id="fileSelect" type="button" class="btn btn-success">Select a score (MusicXML, Humdrum, MEI)</button>
+
+    <button id="transpose">Transpose</button>
+
+    <a id="downloadAnchor" download href="data:plain/text,NothingHere">Download</a>
+</body>
+</html>

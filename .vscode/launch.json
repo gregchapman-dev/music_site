@@ -1,0 +1,28 @@
+{
+    "configurations": [
+        {
+            "type": "chrome",
+            "name": "Client",
+            "request": "launch",
+            "url": "http://localhost:5000/",
+            "webRoot": "scripts"
+        },
+        {
+            "name": "Python: Flask",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "flask",
+            "env": {
+                "FLASK_APP": "music_site/__init__.py",
+                "FLASK_DEBUG": "1"
+            },
+            "args": [
+                "run",
+                "--no-debugger",
+                "--no-reload"
+            ],
+            "jinja": true,
+            "justMyCode": true
+        },
+    ]
+}
