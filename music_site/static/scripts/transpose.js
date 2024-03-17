@@ -20,28 +20,28 @@
         // POSTs to server to be saved for later processing; displays the
         // resulting MusicXML (from response), and adds a download data URL
         // to the DOM for the user to save off that MusicXML).
-        if files === undefined {
+        if (files === undefined) {
             // assume this is called from an <input> element, so the files
             // will be in this.files
             files = this.files
         }
         const selectedFile = files[0];
         const reader = new FileReader();
-        reader.onload = (e) => {
+        reader.onload = async (e) => {
             // POST file contents to '/music_engine/score'
             // The response will be the MusicXML equivalent of the score file
             // contents you POSTed (converted by server, even if what you
             // POSTed was MusicXML).
-            const contentsDict = {'score': reader.contents, 'filename': selectedFile.name}
+            const contentsDict = {'score': reader.contents, 'filename': selectedFile.name};
             const resp = await fetch('/music_engine/score', 'POST', contentsDict.jsonify());
-            const jsonBody = resp.json();
+            const jsonBody = await resp.json();
             scoreXml = jsonBody['musicxml'];
             const sp = new music21.musicxml.xmlToM21.ScoreParser();
             score = sp.scoreFromText(scoreXml);
             scoreEl = sc.appendNewDOM();
             replaceDataUrl(downloadAnchorTag, scoreXml);
-        }
-        reader.readAsDataURL(file);
+        };
+        reader.readAsDataURL(selectedFile);
     }
 
     // ----------- main code ----------------
