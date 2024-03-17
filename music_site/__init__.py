@@ -1,4 +1,5 @@
 import os
+import sys
 
 from flask import (
     Flask, redirect, render_template, request, session, url_for, abort
@@ -62,18 +63,25 @@ def command() -> dict:
 @app.route('/score', methods=['GET', 'POST'])
 def score() -> dict:
     if request.method == 'POST':
-        scoreData: str | bytes = request.form['score']
+        # files in formdata end up in request.files
+        # all other formdata entries end up in request.form
+        file = request.files['file']
         fileName: str = request.form['filename']
-
-        try:
+        fileData: str | bytes = file.read()
+        print(f'PUT /score: first 40 bytes of {fileName}: {fileData[0:40]}')
+#         try:
+        if True:
             # import into music21 (saving the m21 score in gM21Score)
-            gM21Score = MusicEngine.toMusic21Score(scoreData, fileName)
+            print(f'PUT /score: parsing {fileName}')
+            gM21Score = MusicEngine.toMusic21Score(fileData, fileName)
             # export to MusicXML (to a string) and save in gMusicXmlScore
+            print('PUT /score: writing MusicXML string')
             gMusicXmlScore = MusicEngine.toMusicXML(gM21Score)
         except Exception:
             abort(422, 'Unprocessable music score')  # Unprocessable Content
 
     # return MusicXML score no matter whether GET or POST (so client can display it)
+    print('PUT/GET /score returning MusicXML string in JSON[\'musicxml\']')
     return {
         'musicxml': gMusicXmlScore
     }

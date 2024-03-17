@@ -46,7 +46,17 @@ class MusicEngine:
 
     @staticmethod
     def toMusic21Score(fileData: str | bytes, fileName: str) -> m21.stream.Score:
-        fmt: str = m21.common.findFormatFile(fileName)[0]
+        fmt: str = m21.common.findFormatFile(fileName)
+
+        # Some parsers do this for you, but some do not.
+        if isinstance(fileData, bytes):
+            try:
+                print('decoding utf-8')
+                fileData = fileData.decode('utf-8')
+            except UnicodeDecodeError:
+                print('utf-8 failed; decoding latin-1')
+                fileData = fileData.decode('latin-1')
+
         output = m21.converter.parse(fileData, format=fmt, forceSource=True)
         if t.TYPE_CHECKING:
             assert isinstance(output, m21.stream.Score)
