@@ -48,14 +48,27 @@ class MusicEngine:
     def toMusic21Score(fileData: str | bytes, fileName: str) -> m21.stream.Score:
         fmt: str = m21.common.findFormatFile(fileName)
 
-        # Some parsers do this for you, but some do not.
         if isinstance(fileData, bytes):
-            try:
-                print('decoding utf-8')
-                fileData = fileData.decode('utf-8')
-            except UnicodeDecodeError:
-                print('utf-8 failed; decoding latin-1')
-                fileData = fileData.decode('latin-1')
+            if fileData[:4] == b'PK\x03\x04':
+                # it's a zip file, leave it be (probably .mxl file)
+                print('It\'s a zip file')
+                pass
+            else:
+                # Some parsers do this for you, but some do not.
+                # TODO: Here and in converter21's importers,
+                # TODO: support utf-16 as well.
+                try:
+                    print('decoding utf-8')
+                    fileData = fileData.decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        print('utf-8 failed; decoding latin-1')
+                        if t.TYPE_CHECKING:
+                            assert isinstance(fileData, bytes)
+                        fileData = fileData.decode('latin-1')
+                    except Exception:
+                        print('couldn\'t decode, trying parse() anyway')
+                        pass  # carry on with fileData as it was
 
         output = m21.converter.parse(fileData, format=fmt, forceSource=True)
         if t.TYPE_CHECKING:
@@ -116,11 +129,13 @@ class MusicEngine:
         # I can figure out what to do.
         if arrangementType == ArrangementType.UpperVoices:
             # Fix the bass clef if it doesn't have that little 8 above it
-            # (and transpose those notes up an octave so they sound right!).
+            # (and transpose those notes up an octave so they sound/look
+            # right!).
             pass
         elif arrangementType == ArrangementType.LowerVoices:
             # Fix the treble clef if it doesn't have that little 8 below it
-            # (and transpose those notes down an octave so they sound right!).
+            # (and transpose those notes down an octave so they sound/look
+            # right!).
             pass
         # should we do anything for mixed arrangements?  I should look at some.
         # Straight SATB is simple, but...

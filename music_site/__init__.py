@@ -68,7 +68,7 @@ def score() -> dict:
         file = request.files['file']
         fileName: str = request.form['filename']
         fileData: str | bytes = file.read()
-        print(f'PUT /score: first 40 bytes of {fileName}: {fileData[0:40]}')
+        print(f'PUT /score: first 40 bytes of {fileName}: {fileData[0:40]!r}')
         try:
             # import into music21 (saving the m21 score in gM21Score)
             print(f'PUT /score: parsing {fileName}')
