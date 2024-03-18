@@ -1,13 +1,26 @@
-    function transpose() {
-        const req = new XMLHttpRequest();
+    async function processMusicXMLFromResponse(resp) {
+        jsonBody = await resp.json();
+        scoreXml = jsonBody['musicxml'];
+        const sp = new music21.musicxml.xmlToM21.ScoreParser();
+        score = sp.scoreFromText(scoreXml);
+        if (scoreEl === undefined) {
+            scoreEl = score.appendNewDOM();
+        } else {
+            scoreEL = score.replaceDOM()
+        }
+        await replaceDataUrl(downloadAnchorTag, scoreXml);
+    }
 
-        req.onload = (e) => {
-          const arraybuffer = req.response; // not responseText
-          /* … */
-        };
-        req.open('PUT', '');
-        req.responseType = "arraybuffer";
-        req.send();
+    function transpose() {
+        formData = new FormData();
+        formData.append('command', 'transpose');
+        formData.append('interval', 'M2')
+        fetch(
+            '/command',
+            {method: 'POST', body: formData }
+        ).then((resp) => {
+            await processMusicXMLFromResponse(resp);
+        })
     }
 
     async function bytesToBase64DataUrl(bytes, type = "application/octet-stream") {
@@ -45,13 +58,7 @@
                 '/score',
                 {method: 'POST', body: formData }
             );
-
-            const jsonBody = await resp.json();
-            scoreXml = jsonBody['musicxml'];
-            const sp = new music21.musicxml.xmlToM21.ScoreParser();
-            score = sp.scoreFromText(scoreXml);
-            scoreEl = score.appendNewDOM();
-            await replaceDataUrl(downloadAnchorTag, scoreXml);
+            await processMusicXMLFromResponse(resp);
         };
         reader.readAsBinaryString(selectedFile);
     }
@@ -77,15 +84,5 @@
     let scoreEl;
     let scoreStr;
 
-//     mxUrl = 'scores/bachOut.xml';
-//     let sp = new music21.musicxml.xmlToM21.ScoreParser();
-//     const scorePromise = sp.scoreFromUrl(mxUrl)
-//
-//     scorePromise.then((sc) => {
-//         score = sc;
-//         scoreEl = sc.appendNewDOM();
-//         scoreStr = score.write();
-//         replaceDataUrl(downloadAnchorTag, scoreStr);
-//     })
 
     transposeBtn.addEventListener("click", transpose);
