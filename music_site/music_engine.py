@@ -1,5 +1,9 @@
 import typing as t
+import pathlib
+import re
+import zipfile
 from enum import IntEnum, auto
+from io import BytesIO
 
 import music21 as m21
 import converter21
@@ -52,6 +56,12 @@ class MusicEngine:
             if fileData[:4] == b'PK\x03\x04':
                 # it's a zip file, leave it be (probably .mxl file)
                 print('It\'s a zip file')
+                with zipfile.ZipFile(BytesIO(fileData), 'r') as f:
+                    newData: str | bytes = MusicEngine._extractContents(f, fmt)
+                    if not newData:
+                        # will turn into abort(422, 'Unprocessable music score')
+                        raise Exception
+                    fileData = newData
                 pass
             else:
                 # Some parsers do this for you, but some do not.
@@ -74,6 +84,49 @@ class MusicEngine:
         if t.TYPE_CHECKING:
             assert isinstance(output, m21.stream.Score)
         return output
+
+    @staticmethod
+    def _extractContents(f: zipfile.ZipFile,
+                         dataFormat: str = 'musicxml') -> str | bytes:
+        # stolen verbatim from music21.converter (where it is only applied to files,
+        # and we only have bytes).
+        post: str | bytes = ''
+        if dataFormat == 'musicxml':  # try to auto-harvest
+            # will return data as a string
+            # note that we need to read the META-INF/container.xml file
+            # and get the root file full-path
+            # a common presentation will be like this:
+            # ['musicXML.xml', 'META-INF/', 'META-INF/container.xml']
+            for subFp in f.namelist():
+                # the name musicXML.xml is often used, or get top level
+                # xml file
+                if 'META-INF' in subFp:
+                    continue
+                # include .mxl to be kind to users who zipped up mislabeled files
+                if pathlib.Path(subFp).suffix not in ['.musicxml', '.xml', '.mxl']:
+                    continue
+
+                post = f.read(subFp)
+                if isinstance(post, bytes):
+                    foundEncoding = re.match(br"encoding=[\'\"](\S*?)[\'\"]", post[:1000])
+                    if foundEncoding:
+                        defaultEncoding = foundEncoding.group(1).decode('ascii')
+                        print('Found encoding: ', defaultEncoding)
+                    else:
+                        defaultEncoding = 'UTF-8'
+                    try:
+                        post = post.decode(encoding=defaultEncoding)
+                    except UnicodeDecodeError:  # sometimes windows written...
+                        if t.TYPE_CHECKING:
+                            assert isinstance(post, bytes)
+                        print('trying utf-16-le')
+                        post = post.decode(encoding='utf-16-le')
+                        post = re.sub(r"encoding=([\'\"]\S*?[\'\"])",
+                                      "encoding='UTF-8'", post)
+
+                break
+
+        return post
 
     @staticmethod
     def transposeInPlace(score: m21.stream.Score, intervalStr: str):
