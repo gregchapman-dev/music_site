@@ -1,26 +1,34 @@
     async function processMusicXMLFromResponse(resp) {
+        // We do three things with the MusicXML from the response:
+
+        // 1. We stash it off so we can upload it later.
         jsonBody = await resp.json();
-        scoreXml = jsonBody['musicxml'];
+        gScoreMusicXml = jsonBody['musicxml'];
+
+        // 2. We draw it on the webpage.
         const sp = new music21.musicxml.xmlToM21.ScoreParser();
-        score = sp.scoreFromText(scoreXml);
-        if (scoreEl === undefined) {
-            scoreEl = score.appendNewDOM();
+        gScore = sp.scoreFromText(gScoreMusicXml);
+        if (gScoreEl === undefined) {
+            gScoreEl = gScore.appendNewDOM();
         } else {
-            scoreEL = score.replaceDOM()
+            gScoreEL = gScore.replaceDOM()
         }
-        await replaceDataUrl(downloadAnchorTag, scoreXml);
+
+        // 3. We insert it as a data URL in the download anchor tag.
+        await replaceDataUrl(downloadAnchorTag, gScoreMusicXml);
     }
 
     function transpose() {
         formData = new FormData();
         formData.append('command', 'transpose');
-        formData.append('interval', 'M2')
+        formData.append('interval', 'M2');
+        formData.append('musicxml', gScoreMusicXml)
         fetch(
             '/command',
             {method: 'POST', body: formData }
-        ).then((resp) => {
+        ).then( async (resp) => {
             await processMusicXMLFromResponse(resp);
-        })
+        });
     }
 
     async function bytesToBase64DataUrl(bytes, type = "application/octet-stream") {
@@ -80,9 +88,9 @@
         false,
     );
 
-    let score;
-    let scoreEl;
-    let scoreStr;
+    let gScore;
+    let gScoreEl;
+    let gScoreMusicXml;
 
 
     transposeBtn.addEventListener("click", transpose);
