@@ -186,12 +186,18 @@ class MusicEngine:
                     newKeyPitch.octave += 1
 
             interval = m21.interval.Interval(keyPitch, newKeyPitch)
-            score.transpose(interval, inPlace=True)
-        else:
-            newKeyPitch.getEnharmonic(inPlace=True)
-            if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
-                interval = m21.interval.Interval(keyPitch, newKeyPitch)
+            with m21.stream.makeNotation.saveAccidentalDisplayStatus(score):
                 score.transpose(interval, inPlace=True)
+            return
+
+        newKeyPitch.getEnharmonic(inPlace=True)
+        if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
+            interval = m21.interval.Interval(keyPitch, newKeyPitch)
+            with m21.stream.makeNotation.saveAccidentalDisplayStatus(score):
+                score.transpose(interval, inPlace=True)
+            return
+
+        raise Exception('Unexpected failure to find a reasonable key to transpose into')
 
     @staticmethod
     def convertLowerVoicesArrangementToUpperVoices(score: m21.stream.Score):
