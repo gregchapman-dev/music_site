@@ -176,7 +176,7 @@ class MusicEngine:
             keyPitch.octave = 4
             newKeyPitch.octave = 4
             if (newKeyPitch < keyPitch) != (semitones < 0):
-                # Gotta adjust newKeyPitch's octave now,
+                # We need to adjust newKeyPitch's octave now,
                 # so we transpose in the right direction.
                 if semitones < 0:
                     # we should be transposing down, not up
