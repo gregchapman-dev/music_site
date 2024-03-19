@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 
 from flask import (
     Flask, redirect, render_template, request, session, url_for, abort
@@ -37,6 +38,10 @@ def index():
 # TODO: gM21Score: m21.stream.Score | None = None
 # TODO: gMusicXmlScore: str = ''
 
+FMT_TO_FILE_EXT: dict = {
+    'musicxml': 'musicxml',
+    'humdrum': 'krn'
+}
 
 @app.route('/command', methods=['POST'])
 def command() -> dict:
@@ -44,32 +49,64 @@ def command() -> dict:
     cmd: str = request.form.get('command', '')
     print(f'command: cmd = "{cmd}"')
     if cmd == 'transpose':
-        intervalName: str = request.form.get('interval', '')  # e.g. 'P4', 'P-5', etc
-        print(f'command: interval = {intervalName}')
-        if not intervalName:
-            abort(400, 'Invalid transpose (no interval specified)')
+        semitonesStr: str = request.form.get('semitones', '')
+        print(f'command: semitonesStr = {semitonesStr}')
+        if not semitonesStr:
+            print('Invalid transpose (no semitones specified)')
+            abort(400, 'Invalid transpose (no semitones specified)')
+        semitones: int | None = None
+        try:
+            semitones = int(semitonesStr)
+        except Exception:
+            pass
 
-        musicXML: str = request.form.get('musicxml', '')
-        transposedMusicXML: str = ''
-        if not musicXML:
+        if semitones is None:
+            print(f'Invalid transpose (invalid semitones specified: "{semitonesStr}")')
+            abort(400, 'Invalid transpose (invalid semitones specified)')
+
+        fmt: str = request.form.get('format', '')
+        scoreStr: str = request.form.get('score', '')
+        if not scoreStr:
+            print('No score to transpose')
             abort(422, 'No score to transpose')
+        if not fmt or fmt not in FMT_TO_FILE_EXT:
+            print('Unknown format score')
+            abort(422, 'Unknown format score')
 
         try:
-            print('importing MusicXML')
-            m21Score: m21.stream.Score = MusicEngine.toMusic21Score(musicXML, 'upload.musicxml')
+            print(f'first 100 bytes of scoreStr: {scoreStr[0:100]!r}')
+            if '\r\n' in scoreStr:
+                # somebody messed with my Humdrum line ends
+                print('gotta replace CRLF with LF in scoreStr')
+                scoreStr = re.sub('\r\n', '\n', scoreStr)
+                print(f'first 100 bytes of munged scoreStr: {scoreStr[0:100]!r}')
+
+            print(f'importing scoreStr, fmt={fmt}')
+            m21Score: m21.stream.Score = (
+                MusicEngine.toMusic21Score(scoreStr, 'upload.' + FMT_TO_FILE_EXT[fmt])
+            )
+            if not m21Score.isWellFormedNotation():
+                print('Humdrum failed to parse well-formed score')
             print('transposing music21 score')
-            MusicEngine.transposeInPlace(m21Score, intervalName)
+            MusicEngine.transposeInPlace(m21Score, semitones)
             print('producing MusicXML')
             transposedMusicXML = MusicEngine.toMusicXML(m21Score)
             print('done producing MusicXML')
+            print('producing Humdrum')
+            transposedHumdrum: str = MusicEngine.toHumdrum(m21Score)
+            print('done producing Humdrum')
         except Exception:
-            abort(422, 'Failed to transpose')  # Unprocessable Content
+            print('Failed to transpose/export')
+            abort(422, 'Failed to transpose/export')  # Unprocessable Content
     else:
+        print('Invalid music engine command: {cmd}')
         abort(400, 'Invalid music engine command')
 
-    print('returning MusicXML in response JSON')
+    print('returning MusicXML+Humdrum in response JSON')
+    print(f'first 100 bytes of transposedHumdrum: {transposedHumdrum[0:100]!r}')
     return {
-        'musicxml': transposedMusicXML
+        'musicxml': transposedMusicXML,
+        'humdrum': transposedHumdrum
     }
 
 @app.route('/score', methods=['GET', 'POST'])
@@ -80,7 +117,7 @@ def score() -> dict:
         file = request.files['file']
         fileName: str = request.form['filename']
         fileData: str | bytes = file.read()
-        print(f'PUT /score: first 40 bytes of {fileName}: {fileData[0:40]!r}')
+        print(f'PUT /score: first 100 bytes of {fileName}: {fileData[0:100]!r}')
         musicXMLStr: str = ''
         try:
             # import into music21 (saving the m21 score in gM21Score)
@@ -89,6 +126,8 @@ def score() -> dict:
             # export to MusicXML (to a string)
             print('PUT /score: writing MusicXML string')
             musicXMLStr = MusicEngine.toMusicXML(m21Score)
+            print('PUT /score: writing Humdrum string')
+            humdrumStr = MusicEngine.toHumdrum(m21Score)
         except Exception:
             print('Exception during parse/write')
             abort(422, 'Unprocessable music score')  # Unprocessable Content
@@ -99,7 +138,9 @@ def score() -> dict:
         print('No MusicXML generated')
         abort(422, 'No MusicXML generated')  # Unprocessable Content
 
-    print('PUT/GET /score returning MusicXML string in JSON[\'musicxml\']')
+    print('PUT/GET /score returning MusicXML+Humdrum strings')
+    print(f'first 100 bytes of humdrumStr: {humdrumStr[0:100]!r}')
     return {
-        'musicxml': musicXMLStr
+        'musicxml': musicXMLStr,  # for display by client (music21j only displays MusicXML)
+        'humdrum': humdrumStr     # for upload by client with commands (much smaller)
     }

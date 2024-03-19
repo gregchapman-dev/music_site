@@ -1,9 +1,10 @@
-    async function processMusicXMLFromResponse(resp) {
+    async function processMusicFromResponse(resp) {
         // We do three things with the MusicXML from the response:
 
         // 1. We stash it off so we can upload it later.
         jsonBody = await resp.json();
         gScoreMusicXml = jsonBody['musicxml'];
+        gScoreHumdrum = jsonBody['humdrum'];
 
         // 2. We draw it on the webpage.
         const sp = new music21.musicxml.xmlToM21.ScoreParser();
@@ -21,13 +22,14 @@
     function transpose() {
         formData = new FormData();
         formData.append('command', 'transpose');
-        formData.append('interval', 'M2');
-        formData.append('musicxml', gScoreMusicXml)
+        formData.append('semitones', +2);  // 2 semitones: a whole tone up
+        formData.append('score', gScoreHumdrum);
+        formData.append('format', 'humdrum')
         fetch(
             '/command',
             {method: 'POST', body: formData }
         ).then( async (resp) => {
-            await processMusicXMLFromResponse(resp);
+            await processMusicFromResponse(resp);
         });
     }
 
@@ -66,7 +68,7 @@
                 '/score',
                 {method: 'POST', body: formData }
             );
-            await processMusicXMLFromResponse(resp);
+            await processMusicFromResponse(resp);
         };
         reader.readAsBinaryString(selectedFile);
     }
@@ -90,7 +92,7 @@
 
     let gScore;
     let gScoreEl;
-    let gScoreMusicXml;
-
+    let gScoreMusicXml;  // for drawing
+    let gScoreHumdrum;   // for uploading with commands (it's way smaller)
 
     transposeBtn.addEventListener("click", transpose);

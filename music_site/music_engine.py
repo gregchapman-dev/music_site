@@ -43,7 +43,14 @@ class MusicEngine:
 
     @staticmethod
     def toMusicXML(score: m21.stream.Score) -> str:
-        output: str | bytes = m21.converter.toData(score, fmt='musicxml')
+        output: str | bytes = m21.converter.toData(score, fmt='musicxml', makeNotation=False)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, str)
+        return output
+
+    @staticmethod
+    def toHumdrum(score: m21.stream.Score) -> str:
+        output: str | bytes = m21.converter.toData(score, fmt='humdrum', makeNotation=False)
         if t.TYPE_CHECKING:
             assert isinstance(output, str)
         return output
@@ -128,9 +135,63 @@ class MusicEngine:
 
         return post
 
+    _SHARPS_TO_MAJOR_KEYS: dict[int, str] = {
+        -7: 'C-',
+        -6: 'G-',
+        -5: 'D-',
+        -4: 'A-',
+        -3: 'E-',
+        -2: 'B-',
+        -1: 'F',
+        0: 'C',
+        1: 'G',
+        2: 'D',
+        3: 'A',
+        4: 'E',
+        5: 'B',
+        6: 'F#',
+        7: 'C#'
+    }
+
     @staticmethod
-    def transposeInPlace(score: m21.stream.Score, intervalStr: str):
-        score.transpose(intervalStr, inPlace=True)
+    def transposeInPlace(score: m21.stream.Score, semitones: int):
+        # We need to transpose the key in our heads, and pick the right
+        # enharmonic key that has <= 7 sharps or flats, or we'll end up
+        # in the key of G# major and have 8 sharps.
+        keySigs: list[m21.key.KeySignature] = list(
+            score.recurse()
+                .getElementsByClass(m21.key.KeySignature)
+                .getElementsByOffsetInHierarchy(0.0)
+        )
+
+        majorKey: str = 'C'
+        if keySigs:
+            majorKey = MusicEngine._SHARPS_TO_MAJOR_KEYS[keySigs[0].sharps]
+
+        keyPitch = m21.pitch.Pitch(majorKey)
+        chromatic = m21.interval.ChromaticInterval(semitones)
+        newKeyPitch: m21.pitch.Pitch = chromatic.transposePitch(keyPitch)
+        if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
+            # put octaves on them now, and then check it
+            keyPitch.octave = 4
+            newKeyPitch.octave = 4
+            if (newKeyPitch < keyPitch) != (semitones < 0):
+                # Gotta adjust newKeyPitch's octave now,
+                # so we transpose in the right direction.
+                if semitones < 0:
+                    # we should be transposing down, not up
+                    newKeyPitch.octave -= 1
+                else:
+                    # we should be transposing up, not down
+                    newKeyPitch.octave += 1
+
+            interval = m21.interval.Interval(keyPitch, newKeyPitch)
+            score.transpose(interval, inPlace=True)
+        else:
+            newKeyPitch.getEnharmonic(inPlace=True)
+            if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
+                interval = m21.interval.Interval(keyPitch, newKeyPitch)
+                score.transpose(interval, inPlace=True)
 
     @staticmethod
     def convertLowerVoicesArrangementToUpperVoices(score: m21.stream.Score):
