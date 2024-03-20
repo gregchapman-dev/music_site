@@ -9,6 +9,11 @@ from flask import (
 import music21 as m21
 
 from .music_engine import MusicEngine
+from .music_engine import MusicEngineException
+from .music_engine import FourNoteChord
+from .music_engine import ArrangementType
+from .music_engine import VocalRange
+from .music_engine import VocalRangeInfo
 
 # Factory function.  flask knows how to find this (it has a standard
 # name) when passed music_site on the flask command line, e.g.
@@ -34,7 +39,7 @@ def index():
     return render_template('index.html')
 
 # TODO: Put these in some sort of session storage so each user can have their own data,
-# TODO: and we don't have to receive/reparse the MusicXML for each command.
+# TODO: and we don't have to receive/reparse the MusicXML (or Humdrum) for each command.
 # TODO: gM21Score: m21.stream.Score | None = None
 # TODO: gMusicXmlScore: str = ''
 
