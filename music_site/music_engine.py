@@ -116,9 +116,13 @@ class FourVoices(Sequence):
         raise IndexError()
 
 class VocalRange:
-    def __init__(self, lowest: m21.pitch.Pitch, highest: m21.pitch.Pitch):
-        self.lowest: m21.pitch.Pitch = lowest
-        self.highest: m21.pitch.Pitch = highest
+    def __init__(
+        self,
+        lowest: m21.pitch.Pitch | None = None,
+        highest: m21.pitch.Pitch | None = None
+    ):
+        self.lowest: m21.pitch.Pitch | None = lowest
+        self.highest: m21.pitch.Pitch | None = highest
 
 class VocalRangeInfo:
     # Contains vocal range info about a single vocal part
@@ -128,13 +132,28 @@ class VocalRangeInfo:
     #   very long single note duration.
     def __init__(
         self,
-        fullRange: VocalRange,
-        tessitura: VocalRange,
-        posts: list[m21.pitch.Pitch]
+        s: m21.stream.Stream | None
     ):
-        self.fullRange: VocalRange = fullRange
-        self.tessitura: VocalRange = tessitura
-        self.posts: list[m21.pitch.Pitch]
+        self.fullRange: VocalRange | None = None
+        # self.tessitura: VocalRange | None = None
+        # self.posts: list[m21.pitch.Pitch] = []
+        if s is None:
+            return
+
+        # Scan all notes in s, gathering up fullRange (and someday tessitura and posts,
+        # but those require duration analysis and s.stripTies() which gets complicated).
+
+        # FWIW, A0 is the lowest note on the piano, and C8 is the highest.  Should be
+        # well beyond any reasonable vocal range max/min.
+        self.fullRange = VocalRange()
+        for i, n in enumerate(s[m21.note.Note]):
+            if i == 0:
+                self.fullRange.lowest = n.pitch
+                self.fullRange.highest = n.pitch
+                continue
+
+            self.fullRange.lowest = min(self.fullRange.lowest, n.pitch)
+            self.fullRange.highest = max(self.fullRange.highest, n.pitch)
 
 class MusicEngine:
 
@@ -298,15 +317,44 @@ class MusicEngine:
 
     @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
-        leadSheet: m21.stream.Score,
+        inLeadSheet: m21.stream.Score,
     ) -> m21.stream.Score:
-        # never in place, always creates a new score from scratch
+        # Never in place, always creates a new score from scratch
         # raises MusicEngineException if it can't do the job.
+
+        # First, make a deepcopy of the inLeadSheet, so we can modify it at will.
+        # For example, we might need to transpose it to a different key, or generate
+        # ChordSymbols from the piano accompaniment.
+        leadSheet: m21.stream.Score = deepcopy(inLeadSheet)
+
         melody: m21.stream.Part | None
         chords: m21.stream.Part | None
         melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
         if melody is None or chords is None:
             raise MusicEngineException
+
+        # Now, if necessary, switch from Treble clef to Treble8vb clef (and transpose
+        # the melody down an octave to match).
+        initialClef: m21.clef.Clef | None = None
+
+        for clef in (melody.recurse()
+            .getElementsByClass(m21.clef.Clef)
+            .getElementsByOffsetInHierarchy(0.0)
+        ):
+            initialClef = clef
+            break
+
+        if initialClef is None or isinstance(initialClef, m21.clef.TrebleClef):
+            if initialClef is not None:
+                melody.remove(initialClef)
+            melody.insert(0, m21.clef.Treble8vbClef())
+            interval = m21.interval.Interval('P-8')
+            with m21.stream.makeNotation.saveAccidentalDisplayStatus(melody):
+                melody.transpose(interval, inPlace=True)
+
+        # Now pick a key that will work for lead voice range, and transpose.
+        melodyInfo = VocalRangeInfo(melody)
+
 
         # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
         # duration == 0, which doesn't help us find the ChordSymbol time range that
@@ -323,6 +371,41 @@ class MusicEngine:
         bbStaff: m21.stream.Part = m21.stream.Part()
         shopped.insert(0, bbStaff)
         bbClef: m21.clef.Clef | None = m21.clef.BassClef()
+
+        # From "Arranging Barbershop: Volume 2" pp11-13
+        # 'lead': Copy the melody
+        #
+        #  For each of the three harmony parts, harmonize the melody's pillar notes (the
+        #       melody notes that are in the chord) as follows:
+        #
+        # 'bass': Start the bass on the root or fifth for seventh chords and the root
+        #           for triads. Try to follow the general shape of the melody so that
+        #           bass notes are higher when the melody is higher and lower when the
+        #           melody is lower.  This will help the voicings to not become too
+        #           spread.  Consider bass voice leading when the harmony is a seventh
+        #           chord and the melody is not on the root or fifth.
+        # 'tenor': (Above melody) Use one of the unused notes in the chord, or double the
+        #           root if it is a triad.  Consider voice leading and seek for fewer
+        #           awkward leaps.  There may be times with choosing a different bass
+        #           note would allow a smoother tenor part.
+        # 'bari': Complete each chord or double the root if it is a triad.  As with the
+        #           tenor, try to not have the part jump around unnecessarily and consider
+        #           changing the bass or tenor note if it leads to a smoother baritone
+        #           part.
+
+        # First we process the melody into the lead part (creating the entire output
+        # score structure as we go, including parts, measures, and voices; inserting
+        # any clefs/keysigs/timesigs in all the appropriate measures; and inserting
+        # the chord symbols into the measures in the top staff).
+        #
+        # Then we will harmonize the three harmony parts, one at a time, potentially
+        # tweaking other already harmonized parts as we go, to get better voice
+        # leading.
+
+        for currPart in ('bass', 'tenor', 'bari'):
+            if currPart == 'lead':
+                # copy melody notes into the lead part
+                continue
 
         for mMeas, cMeas in zip(melody[m21.stream.Measure], chords[m21.stream.Measure]):
             voices = list(mMeas.voices)
@@ -426,34 +509,26 @@ class MusicEngine:
             # Basic triad, double the root
             if lead.pitch.name == root.name:
                 # is lead on low root or high root?
-                if MusicEngine.pitchInRange(lead.pitch, 'F3', ''):
+                if lead.pitch > m21.pitch.Pitch('F3'):
                     # lead is on high-enough root that bass can be an octave below
-                    bass = m21.note.Note(root.name, octave=lead.pitch.octave - 1)
+                    bass = MusicEngine.makeNote(root.name, below=lead)
                 else:
                     # lead is on too-low a root for bass an octave below.
-                    # bass gets root in same octave as lead
-                    bass = m21.note.Note(root.name, octave=lead.pitch.octave)
+                    # bass gets exactly the same note as lead
+                    bass = deepcopy(lead)
 
                 # tenor on third, above the lead
-                tenor = m21.note.Note(third.name, octave=lead.pitch.octave)
-                if tenor.pitch < lead.pitch:
-                    tenor.pitch.octave += 1
+                tenor = MusicEngine.makeNote(third.name, above=lead)
 
                 # bari on fifth, below the lead
-                bari = m21.note.Note(fifth.name, octave=lead.pitch.octave)
-                if bari.pitch > lead.pitch:
-                    bari.pitch.octave -= 1
+                bari = MusicEngine.makeNote(fifth.name, below=lead)
 
             elif lead.pitch.name == fifth.name:
                 # lead on fifth: bass gets root below lead
-                # bari gets root an octave above the bass, tenor gets third above bari
-                bass = m21.note.Note(root.name, octave=lead.pitch.octave)
-                if bass.pitch > lead.pitch:
-                    bass.pitch.octave -= 1
-                bari = m21.note.Note(root.name, octave=bass.pitch.octave + 1)
-                tenor = m21.note.Note(third.name, octave=bari.pitch.octave)
-                if tenor.pitch < bari.pitch:
-                    tenor.pitch.octave += 1
+                # bari gets root above the lead, tenor gets third above bari
+                bass = MusicEngine.makeNote(root.name, below=lead)
+                bari = MusicEngine.makeNote(root.name, above=lead)
+                tenor = MusicEngine.makeNote(third.name, above=bari)
 
             elif lead.pitch.name == third.name:
                 # lead on third: Choices are tenor on fifth above lead, tenor on root below lead,
@@ -462,9 +537,12 @@ class MusicEngine:
                 # bari gets fifth below lead
                 # if lead is low, bass gets root (a 3rd below lead) tenor gets root above lead,
                 # bari gets fifth above lead
-                bass = m21.note.Note(root.name)
-                tenor = m21.note.Note(root.name)
-                bari = m21.note.Note(fifth.name)
+
+                # Example code here for high lead (showing off extraOctaves usage)
+                bass = MusicEngine.makeNote(root.name, below=lead, extraOctaves=1)
+                tenor = MusicEngine.makeNote(root.name, below=lead)
+                bari = MusicEngine.makeNote(fifth.name, above=lead)
+
             else:
                 # lead is not on a pillar chord note, fill in bass/tenor/bari with spaces
                 bass = m21.note.Rest(lead.duration.quarterLength)
@@ -473,15 +551,53 @@ class MusicEngine:
                 bari = deepcopy(bass)
 
         # Specify stem directions explicitly
-        if tenor.isNote:
+        if isinstance(tenor, m21.note.Note):
             tenor.stemDirection = 'up'
         lead.stemDirection = 'down'
-        if bari.isNote:
+        if isinstance(bari, m21.note.Note):
             bari.stemDirection = 'up'
-        if bass.isNote:
+        if isinstance(bass, m21.note.Note):
             bass.stemDirection = 'down'
 
         return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+
+    @staticmethod
+    def makeNote(
+        pitchName: str,
+        below: m21.note.Note | None = None,
+        above: m21.note.Note | None = None,
+        extraOctaves: int = 0
+    ) -> m21.note.Note:
+        if below is not None and above is not None:
+            raise MusicEngineException(
+                'makeNote must be passed exactly one (not both) of above/below'
+            )
+
+        if extraOctaves < 0:
+            raise MusicEngineException(
+                'extraOctaves must be > 0; it will be "added" in the above or below direction.'
+            )
+
+        output: m21.note.Note
+        octave: int | None
+        if below is not None:
+            output = m21.note.Note(pitchName, octave=below.pitch.octave)  # type: ignore
+            if output.pitch > below.pitch:
+                output.pitch.octave -= 1  # type: ignore
+            if extraOctaves:
+                output.pitch.octave -= extraOctaves  # type: ignore
+        elif above is not None:
+            output = m21.note.Note(pitchName, octave=above.pitch.octave)  # type: ignore
+            if output.pitch < above.pitch:
+                output.pitch.octave += 1  # type: ignore
+            if extraOctaves:
+                output.pitch.octave += extraOctaves  # type: ignore
+        else:
+            raise MusicEngineException(
+                'makeNote must be passed exactly one (not neither) of above/below'
+            )
+
+        return output
 
     @staticmethod
     def appendShoppedChord(
@@ -601,7 +717,3 @@ class MusicEngine:
             pass
         # should we do anything for mixed arrangements?  I should look at some.
         # Straight SATB is simple, but...
-
-    @staticmethod
-    def scanForRangeInfo(score: m21.stream.Score) -> list[VocalRangeInfo]:
-        return []
