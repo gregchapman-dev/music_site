@@ -11,8 +11,8 @@ from music_site import (
 )
 
 
-def testShopPillarsFromLeadSheet(inScore: m21.stream.Score) -> m21.stream.Score:
-    return MusicEngine.shopPillarMelodyNotesFromLeadSheet(inScore)
+def testShopPillars(inScore: m21.stream.Score, arrType: ArrangementType) -> m21.stream.Score:
+    return MusicEngine.shopPillarMelodyNotesFromLeadSheet(inScore, arrType)
 
 
 
@@ -32,11 +32,21 @@ inPath: Path = Path(args.input_file)
 print(f'leadsheet input file: {inPath}')
 
 # use '_ShoppedPillars.mxl' if you want compressed output (fmt is still 'musicxml')
-outPath: Path = Path(tempfile.gettempdir()) / (inPath.stem + '_ShoppedPillars.musicxml')
-print(f'shopped pillars output file: {outPath}')
+outPath: Path = Path(tempfile.gettempdir()) / (inPath.stem + '_ShoppedPillarsLower.musicxml')
+print(f'shopped pillars (lower) output file: {outPath}')
 
 leadSheetScore: m21.stream.Score = m21.converter.parseFile(inPath)
-shoppedPillarsScore: m21.stream.Score = testShopPillarsFromLeadSheet(leadSheetScore)
-shoppedPillarsScore.write(fmt='musicxml', fp=outPath, makeNotation=False)
+shoppedPillarsLowerVoicesScore: m21.stream.Score = (
+    testShopPillars(leadSheetScore, ArrangementType.LowerVoices)
+)
+shoppedPillarsLowerVoicesScore.write(fmt='musicxml', fp=outPath, makeNotation=False)
+
+outPath: Path = Path(tempfile.gettempdir()) / (inPath.stem + '_ShoppedPillarsLower.musicxml')
+print(f'shopped pillars (lower) output file: {outPath}')
+
+shoppedPillarsUpperVoicesScore: m21.stream.Score = (
+    testShopPillars(leadSheetScore, ArrangementType.UpperVoices)
+)
+shoppedPillarsUpperVoicesScore.write(fmt='musicxml', fp=outPath, makeNotation=False)
 
 

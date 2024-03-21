@@ -2,7 +2,7 @@ import typing as t
 import pathlib
 import re
 import zipfile
-from enum import IntEnum, auto
+from enum import Enum, IntEnum, auto
 from io import BytesIO
 from copy import deepcopy
 from collections.abc import Sequence
@@ -17,13 +17,24 @@ converter21.register()
 
 # from flaskr.db import get_db
 
+class MyStrEnum(str, Enum):
+    def __new__(cls, value: str):
+        return str.__new__(cls, value)
+
 class MusicEngineException(Exception):
     pass
 
 class ArrangementType (IntEnum):
     UpperVoices = auto()
-    MixedVoices = auto()
+    # MixedVoices = auto()  # not yet supported; user might need to specify part ranges?
     LowerVoices = auto()
+
+class PartName (MyStrEnum):
+    Tenor = 'tenor'
+    Lead = 'lead'
+    Bari = 'bari'
+    Bass = 'bass'
+
 
 class FourNoteChord(Sequence):
     def __init__(
@@ -58,13 +69,13 @@ class FourNoteChord(Sequence):
         return 4
 
     def __getitem__(self, idx: int | str | slice) -> t.Any:  # m21.note.Note | m21.note.Rest:
-        if idx == 0 or idx == 'tenor':
+        if idx == 0 or idx == PartName.Tenor:
             return self.tenor
-        if idx == 1 or idx == 'lead':
+        if idx == 1 or idx == PartName.Lead:
             return self.lead
-        if idx == 2 or idx == 'bari':
+        if idx == 2 or idx == PartName.Bari:
             return self.bari
-        if idx == 3 or idx == 'bass':
+        if idx == 3 or idx == PartName.Bass:
             return self.bass
 
         # we don't support slicing (or out-of-range idx)
@@ -103,13 +114,13 @@ class FourVoices(Sequence):
         return 4
 
     def __getitem__(self, idx: int | slice) -> t.Any:  # m21.stream.Voice:
-        if idx == 0 or idx == 'tenor':
+        if idx == 0 or idx == PartName.Tenor:
             return self.tenor
-        if idx == 1 or idx == 'lead':
+        if idx == 1 or idx == PartName.Lead:
             return self.lead
-        if idx == 2 or idx == 'bari':
+        if idx == 2 or idx == PartName.Bari:
             return self.bari
-        if idx == 3 or idx == 'bass':
+        if idx == 3 or idx == PartName.Bass:
             return self.bass
 
         # we don't support slicing (or out-of-range idx)
@@ -118,11 +129,31 @@ class FourVoices(Sequence):
 class VocalRange:
     def __init__(
         self,
-        lowest: m21.pitch.Pitch | None = None,
-        highest: m21.pitch.Pitch | None = None
+        lowest: m21.pitch.Pitch,
+        highest: m21.pitch.Pitch
     ):
-        self.lowest: m21.pitch.Pitch | None = lowest
-        self.highest: m21.pitch.Pitch | None = highest
+        self.lowest: m21.pitch.Pitch = lowest
+        self.highest: m21.pitch.Pitch = highest
+
+    def isInRange(self, p: m21.pitch.Pitch) -> bool:
+        return self.lowest <= p <= self.highest
+
+PART_RANGES: dict[ArrangementType, dict[PartName, VocalRange]] = {
+    ArrangementType.LowerVoices: {
+        PartName.Tenor: VocalRange(m21.pitch.Pitch('B-3'), m21.pitch.Pitch('B-4')),
+        PartName.Lead: VocalRange(m21.pitch.Pitch('D3'), m21.pitch.Pitch('F4')),
+        PartName.Bari: VocalRange(m21.pitch.Pitch('B2'), m21.pitch.Pitch('F4')),
+        PartName.Bass: VocalRange(m21.pitch.Pitch('F2'), m21.pitch.Pitch('B-3')),
+    },
+    ArrangementType.UpperVoices: {
+        PartName.Tenor: VocalRange(m21.pitch.Pitch('G4'), m21.pitch.Pitch('F5')),
+        PartName.Lead: VocalRange(m21.pitch.Pitch('A3'), m21.pitch.Pitch('C5')),
+        PartName.Bari: VocalRange(m21.pitch.Pitch('A3'), m21.pitch.Pitch('C5')),
+        PartName.Bass: VocalRange(m21.pitch.Pitch('E-3'), m21.pitch.Pitch('D4')),
+    },
+    # There are no standard ranges for mixed voice barbershop: know the vocal ranges
+    # of the group you are arranging for.
+}
 
 class VocalRangeInfo:
     # Contains vocal range info about a single vocal part
@@ -145,18 +176,62 @@ class VocalRangeInfo:
 
         # FWIW, A0 is the lowest note on the piano, and C8 is the highest.  Should be
         # well beyond any reasonable vocal range max/min.
-        self.fullRange = VocalRange()
         for i, n in enumerate(s[m21.note.Note]):
             if i == 0:
-                self.fullRange.lowest = n.pitch
-                self.fullRange.highest = n.pitch
+                self.fullRange = VocalRange(n.pitch, n.pitch)
                 continue
+
+            if t.TYPE_CHECKING:
+                assert isinstance(self.fullRange, VocalRange)
 
             self.fullRange.lowest = min(self.fullRange.lowest, n.pitch)
             self.fullRange.highest = max(self.fullRange.highest, n.pitch)
 
-class MusicEngine:
+    def getTranspositionSemitones(
+        self,
+        partName: PartName,
+        arrType: ArrangementType
+    ) -> int:
+        if self.fullRange is None:
+            raise MusicEngineException('getTranspositionSemitones called on empty VocalRange')
 
+        goalRange: VocalRange = PART_RANGES[arrType][partName]
+        currRange: VocalRange = self.fullRange
+
+        # We do all of our computations in terms of semitones-too-low, because we want
+        # to return semitonesTooLow (say, 3) which means we have to transpose
+        # by that many (say, 3) semitones (i.e. 3 semitones up).  If the current
+        # range is too high (by say, 5 semitones), semitonesTooLow will be negative
+        # (say, -5), because we have to transpose by that many (say, -5) semitones
+        # (i.e. 5 semitones down).
+
+        # How many semitones too low (relative to goalRange) are both ends of the range?
+        # We take the float because we might have to do averaging and rounding.
+        lowEndSemitonesTooLow: float = currRange.lowest.ps - goalRange.lowest.ps
+        highEndSemitonesTooLow: float = currRange.highest.ps - goalRange.highest.ps
+
+        semitonesTooLow: int = 0
+
+        if lowEndSemitonesTooLow > 0:
+            # we need to transpose up a bit
+            if highEndSemitonesTooLow <= 0:
+                # no room to transpose up
+                # Strike a compromise
+                semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
+            else:
+                semitonesTooLow = round(lowEndSemitonesTooLow)
+        elif highEndSemitonesTooLow < 0:
+            # we need to transpose down a bit
+            if lowEndSemitonesTooLow >= 0:
+                # no room to transpose down
+                # Strike a compromise
+                semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
+            else:
+                semitonesTooLow = round(highEndSemitonesTooLow)
+
+        return semitonesTooLow
+
+class MusicEngine:
     @staticmethod
     def toMusicXML(score: m21.stream.Score) -> str:
         output: str | bytes = m21.converter.toData(score, fmt='musicxml', makeNotation=False)
@@ -270,10 +345,13 @@ class MusicEngine:
     }
 
     @staticmethod
-    def transposeInPlace(score: m21.stream.Score, semitones: int):
-        # We need to transpose the key in our heads, and pick the right
-        # enharmonic key that has <= 7 sharps or flats, or we'll end up
-        # in the key of G# major and have 8 sharps.
+    def getBestTranspositionForScore(
+        score: m21.stream.Score,
+        semitonesUp: int
+    ) -> m21.interval.Interval:
+        # We need to transpose the key, and pick the right enharmonic
+        # key that has <= 7 sharps or flats, or we'll end up in the
+        # key of G# major and have 8 sharps (or worse).
         keySigs: list[m21.key.KeySignature] = list(
             score.recurse()
                 .getElementsByClass(m21.key.KeySignature)
@@ -285,16 +363,16 @@ class MusicEngine:
             majorKey = MusicEngine._SHARPS_TO_MAJOR_KEYS[keySigs[0].sharps]
 
         keyPitch = m21.pitch.Pitch(majorKey)
-        chromatic = m21.interval.ChromaticInterval(semitones)
+        chromatic = m21.interval.ChromaticInterval(semitonesUp)
         newKeyPitch: m21.pitch.Pitch = chromatic.transposePitch(keyPitch)
         if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
             # put octaves on them now, and then check it
             keyPitch.octave = 4
             newKeyPitch.octave = 4
-            if (newKeyPitch < keyPitch) != (semitones < 0):
+            if (newKeyPitch < keyPitch) != (semitonesUp < 0):
                 # We need to adjust newKeyPitch's octave now,
                 # so we transpose in the right direction.
-                if semitones < 0:
+                if semitonesUp < 0:
                     # we should be transposing down, not up
                     newKeyPitch.octave -= 1
                 else:
@@ -302,22 +380,33 @@ class MusicEngine:
                     newKeyPitch.octave += 1
 
             interval = m21.interval.Interval(keyPitch, newKeyPitch)
-            with m21.stream.makeNotation.saveAccidentalDisplayStatus(score):
-                score.transpose(interval, inPlace=True)
-            return
+            return interval
 
         newKeyPitch.getEnharmonic(inPlace=True)
         if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
             interval = m21.interval.Interval(keyPitch, newKeyPitch)
-            with m21.stream.makeNotation.saveAccidentalDisplayStatus(score):
-                score.transpose(interval, inPlace=True)
-            return
+            return interval
+
+        # sometimes getEnharmonic cycles between three pitches, so try for a 3rd time
+        newKeyPitch.getEnharmonic(inPlace=True)
+        if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
+            interval = m21.interval.Interval(keyPitch, newKeyPitch)
+            return interval
 
         raise Exception('Unexpected failure to find a reasonable key to transpose into')
 
     @staticmethod
+    def transposeInPlace(score: m21.stream.Score, semitones: int):
+        interval: m21.interval.Interval = (
+            MusicEngine.getBestTranspositionForScore(score, semitones)
+        )
+        with m21.stream.makeNotation.saveAccidentalDisplayStatus(score):
+            score.transpose(interval, inPlace=True)
+
+    @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
+        arrType: ArrangementType
     ) -> m21.stream.Score:
         # Never in place, always creates a new score from scratch
         # raises MusicEngineException if it can't do the job.
@@ -327,100 +416,115 @@ class MusicEngine:
         # ChordSymbols from the piano accompaniment.
         leadSheet: m21.stream.Score = deepcopy(inLeadSheet)
 
+        # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
+        # duration == 0 or 1, which doesn't help us find the ChordSymbol that has a
+        # time range that contains a particular offset.
+        m21.harmony.realizeChordSymbolDurations(leadSheet)
+
         melody: m21.stream.Part | None
         chords: m21.stream.Part | None
         melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
         if melody is None or chords is None:
             raise MusicEngineException
 
-        # Now, if necessary, switch from Treble clef to Treble8vb clef (and transpose
-        # the melody down an octave to match).
-        initialClef: m21.clef.Clef | None = None
-
-        for clef in (melody.recurse()
-            .getElementsByClass(m21.clef.Clef)
-            .getElementsByOffsetInHierarchy(0.0)
-        ):
-            initialClef = clef
-            break
-
-        if initialClef is None or isinstance(initialClef, m21.clef.TrebleClef):
-            if initialClef is not None:
-                melody.remove(initialClef)
-            melody.insert(0, m21.clef.Treble8vbClef())
-            interval = m21.interval.Interval('P-8')
-            with m21.stream.makeNotation.saveAccidentalDisplayStatus(melody):
-                melody.transpose(interval, inPlace=True)
-
         # Now pick a key that will work for lead voice range, and transpose.
-        melodyInfo = VocalRangeInfo(melody)
+        melodyInfo: VocalRangeInfo = VocalRangeInfo(melody)
+        semitonesUp = (
+            melodyInfo.getTranspositionSemitones(PartName.Lead, ArrangementType.LowerVoices)
+        )
+        interval: m21.interval.Interval = (
+            MusicEngine.getBestTranspositionForScore(leadSheet, semitonesUp)
+        )
 
+        # Transpose the whole leadSheet score by that interval (in place).
+        # Note that if we're doing a LowerVoices arrangement this will
+        # probably make the leadSheet unreadable if you were to print it
+        # out, since the upper staff will be an octave lower than is
+        # appropriate for treble clef.  If you wanted to print it out,
+        # you could switch the clef to Treble8vbClef first, to make it
+        # look right.  But the arrangement code doesn't care: it will
+        # put the right clefs in the output, and it knows  exactly what
+        # octave the melody notes are in (without caring about the clef).
+        with m21.stream.makeNotation.saveAccidentalDisplayStatus(leadSheet):
+            leadSheet.transpose(interval, inPlace=True)
 
-        # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
-        # duration == 0, which doesn't help us find the ChordSymbol time range that
-        # overlaps an offset.
-        m21.harmony.realizeChordSymbolDurations(leadSheet)
-
+        # Set up the score with two Parts: Tenor/Lead and Bari/Bass
         shopped: m21.stream.Score = m21.stream.Score()
-
-        # set up two Parts (Treblev8 and Bass)
         tlStaff: m21.stream.Part = m21.stream.Part()
         shopped.insert(0, tlStaff)
-        tlClef: m21.clef.Clef | None = m21.clef.Treble8vbClef()
-
         bbStaff: m21.stream.Part = m21.stream.Part()
         shopped.insert(0, bbStaff)
-        bbClef: m21.clef.Clef | None = m21.clef.BassClef()
-
-        # From "Arranging Barbershop: Volume 2" pp11-13
-        # 'lead': Copy the melody
-        #
-        #  For each of the three harmony parts, harmonize the melody's pillar notes (the
-        #       melody notes that are in the chord) as follows:
-        #
-        # 'bass': Start the bass on the root or fifth for seventh chords and the root
-        #           for triads. Try to follow the general shape of the melody so that
-        #           bass notes are higher when the melody is higher and lower when the
-        #           melody is lower.  This will help the voicings to not become too
-        #           spread.  Consider bass voice leading when the harmony is a seventh
-        #           chord and the melody is not on the root or fifth.
-        # 'tenor': (Above melody) Use one of the unused notes in the chord, or double the
-        #           root if it is a triad.  Consider voice leading and seek for fewer
-        #           awkward leaps.  There may be times with choosing a different bass
-        #           note would allow a smoother tenor part.
-        # 'bari': Complete each chord or double the root if it is a triad.  As with the
-        #           tenor, try to not have the part jump around unnecessarily and consider
-        #           changing the bass or tenor note if it leads to a smoother baritone
-        #           part.
 
         # First we process the melody into the lead part (creating the entire output
         # score structure as we go, including parts, measures, and voices; inserting
         # any clefs/keysigs/timesigs in all the appropriate measures; and inserting
         # the chord symbols into the measures in the top staff).
-        #
-        # Then we will harmonize the three harmony parts, one at a time, potentially
-        # tweaking other already harmonized parts as we go, to get better voice
-        # leading.
 
-        for currPart in ('bass', 'tenor', 'bari'):
-            if currPart == 'lead':
-                # copy melody notes into the lead part
-                continue
+        for mIdx, (mMeas, cMeas) in enumerate(
+            zip(melody[m21.stream.Measure], chords[m21.stream.Measure])
+        ):
+            # Keep track of stuff we deepcopy into tlMeas/bbMeas (which should
+            # then be skipped when populating the four voices.
+            measureStuff: list[m21.base.Music21Object] = []
 
-        for mMeas, cMeas in zip(melody[m21.stream.Measure], chords[m21.stream.Measure]):
-            voices = list(mMeas.voices)
-            if voices:
-                mVoice = voices[0]
-            else:
-                mVoice = mMeas
-
+            # create and append the next tlMeas and bbMeas
             tlMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
             tlStaff.append(tlMeas)
+            bbMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
+            bbStaff.append(bbMeas)
 
-            if tlClef is not None:
-                tlMeas.insert(0, tlClef)
-                tlClef = None
+            if mIdx == 0:
+                # clef (just put in the clefs we like; hopefully the transposition
+                # we did will make those reasonable clefs).  We will ignore all
+                # clef changes in the rest of the melody; if there are any, we'll
+                # just get lots of leger lines, I guess.
+                if arrType == ArrangementType.LowerVoices:
+                    tlMeas.insert(0, m21.clef.Treble8vbClef())
+                    bbMeas.insert(0, m21.clef.BassClef())
+                elif arrType == ArrangementType.UpperVoices:
+                    tlMeas.insert(0, m21.clef.TrebleClef())
+                    bbMeas.insert(0, m21.clef.Bass8vaClef())
 
+            # left barline
+            if mMeas.leftBarline:
+                measureStuff.append(mMeas.leftBarline)
+                tlMeas.leftBarline = deepcopy(mMeas.leftBarline)
+                bbMeas.leftBarline = deepcopy(mMeas.leftBarline)
+
+            # {tl,bb}Meas.insert(0) any keySig/timeSig that are at offset 0
+            # in mMeas.recurse(). Just one of each type though.
+            sigs: list[m21.key.KeySignature | m21.meter.TimeSignature] = list(
+                mMeas.recurse()
+                    .getElementsByClass([m21.key.KeySignature, m21.meter.TimeSignature])
+                    .getElementsByOffsetInHierarchy(0.0)
+            )
+
+            timeSigFound: bool = False
+            keySigFound: bool = False
+            for sig in sigs:
+                if not timeSigFound:
+                    if isinstance(sig, m21.meter.TimeSignature):
+                        measureStuff.append(sig)
+                        tlMeas.insert(0, deepcopy(sig))
+                        bbMeas.insert(0, deepcopy(sig))
+                        timeSigFound = True
+                if not keySigFound:
+                    if isinstance(sig, m21.key.KeySignature):
+                        measureStuff.append(sig)
+                        tlMeas.insert(0, deepcopy(sig))
+                        bbMeas.insert(0, deepcopy(sig))
+                        keySigFound = True
+                if keySigFound and timeSigFound:
+                    break
+
+            # right barline
+            if mMeas.rightBarline:
+                measureStuff.append(mMeas.rightBarline)
+                tlMeas.rightBarline = deepcopy(mMeas.rightBarline)
+                bbMeas.rightBarline = deepcopy(mMeas.rightBarline)
+
+            # create two voices in each measure:
+            # (tenor/lead in tlMeas, and bari/bass in bbMeas)
             tenor = m21.stream.Voice()
             tenor.id = '1'
             lead = m21.stream.Voice()
@@ -428,51 +532,125 @@ class MusicEngine:
             tlMeas.insert(0, tenor)
             tlMeas.insert(0, lead)
 
-            bbMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
-            bbStaff.append(bbMeas)
-
-            if bbClef is not None:
-                bbMeas.insert(0, bbClef)
-                bbClef = None
-
             bari = m21.stream.Voice()
             bari.id = '3'
             bass = m21.stream.Voice()
             bass.id = '4'
-            tlMeas.insert(0, bari)
-            tlMeas.insert(0, bass)
+            bbMeas.insert(0, bari)
+            bbMeas.insert(0, bass)
 
-            fourVoices: FourVoices = FourVoices(tenor=tenor, lead=lead, bari=bari, bass=bass)
+            # Walk all the ChordSymbols in cMeas and put them in tlMeas (so
+            # they will display above the top staff).
+            for cs in cMeas.recurse().getElementsByClass(m21.harmony.ChordSymbol):
+                measureStuff.append(cs)
+                offset = cs.getOffsetInHierarchy(cMeas)
+                tlMeas.insert(offset, cs)
 
-
-            for melodyNote in mVoice:
-                if isinstance(melodyNote, m21.harmony.ChordSymbol):
-                    # melody part might be same as chords part (which we are walking separately),
-                    # so just skip over this
+            # Recurse all elements of mMeas, skipping any measureStuff
+            # and any clefs and put them in the lead voice.
+            for el in mMeas.recurse():
+                if isinstance(el, m21.clef.Clef):
                     continue
-                if isinstance(melodyNote, m21.note.Rest):
-                    MusicEngine.appendDeepCopyTo(melodyNote, fourVoices)
+                if el in measureStuff:
                     continue
-                if isinstance(melodyNote, m21.chord.Chord):
-                    raise MusicEngineException(
-                        'Chord (not ChordSymbol) found in leadsheet melody'
-                    )
+                offset = el.getOffsetInHierarchy(mMeas)
+                lead.insert(offset, el)
 
-                if not isinstance(melodyNote, m21.note.Note):
-                    continue
+        raise Exception
 
-                # it's a Note
-                offset = melodyNote.getOffsetInHierarchy(mMeas)
-                dur = melodyNote.duration.quarterLength
-                chordSym: m21.harmony.ChordSymbol | None = (
-                    MusicEngine.findChordSymbolOverlappingOffset(cMeas, offset)
-                )
-                # Figure out a voicing.
-                tenorLeadBariBass: FourNoteChord = (
-                    MusicEngine.computeShoppedPillarChord(melodyNote, chordSym)
-                )
+        # Then we will harmonize the three harmony parts, one at a time all the way
+        # through, harmonizing only the melody notes that are in the specified chord
+        # (the melody pillar notes), potentially tweaking other already harmonized
+        # parts as we go, to get better voice leading, as follows:
 
-                MusicEngine.appendShoppedChord(tenorLeadBariBass, fourVoices)
+        # From "Arranging Barbershop: Volume 2" pp11-13
+        #
+        # Bass: Start the bass on the root or fifth for seventh chords and the root
+        #           for triads. Try to follow the general shape of the melody so that
+        #           bass notes are higher when the melody is higher and lower when the
+        #           melody is lower.  This will help the voicings to not become too
+        #           spread.  Consider bass voice leading when the harmony is a seventh
+        #           chord and the melody is not on the root or fifth.
+        #
+        # Tenor: (Above melody) Use one of the unused notes in the chord, or double the
+        #           root if it is a triad.  Consider voice leading and seek for fewer
+        #           awkward leaps.  There may be times with choosing a different bass
+        #           note would allow a smoother tenor part.
+        #
+        # Bari: Complete each chord or double the root if it is a triad.  As with the
+        #           tenor, try to not have the part jump around unnecessarily and consider
+        #           changing the bass or tenor note if it leads to a smoother baritone
+        #           part.
+
+        for currPart in (PartName.Bass, PartName.Tenor, PartName.Bari):
+            pass
+
+#         for mMeas, cMeas in zip(melody[m21.stream.Measure], chords[m21.stream.Measure]):
+#             voices = list(mMeas.voices)
+#             if voices:
+#                 mVoice = voices[0]
+#             else:
+#                 mVoice = mMeas
+#
+#             tlMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
+#             tlStaff.append(tlMeas)
+#
+#             if tlClef is not None:
+#                 tlMeas.insert(0, tlClef)
+#                 tlClef = None
+#
+#             tenor = m21.stream.Voice()
+#             tenor.id = '1'
+#             lead = m21.stream.Voice()
+#             lead.id = '2'
+#             tlMeas.insert(0, tenor)
+#             tlMeas.insert(0, lead)
+#
+#             bbMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
+#             bbStaff.append(bbMeas)
+#
+#             if bbClef is not None:
+#                 bbMeas.insert(0, bbClef)
+#                 bbClef = None
+#
+#             bari = m21.stream.Voice()
+#             bari.id = '3'
+#             bass = m21.stream.Voice()
+#             bass.id = '4'
+#             tlMeas.insert(0, bari)
+#             tlMeas.insert(0, bass)
+#
+#             fourVoices: FourVoices = FourVoices(tenor=tenor, lead=lead, bari=bari, bass=bass)
+#
+#
+#             for melodyNote in mVoice:
+#                 if isinstance(melodyNote, m21.harmony.ChordSymbol):
+#                     # melody part might be same as chords part (which we are walking separately),
+#                     # so just skip over this
+#                     continue
+#                 if isinstance(melodyNote, m21.note.Rest):
+#                     MusicEngine.appendDeepCopyTo(melodyNote, fourVoices)
+#                     continue
+#                 if isinstance(melodyNote, m21.chord.Chord):
+#                     raise MusicEngineException(
+#                         'Chord (not ChordSymbol) found in leadsheet melody'
+#                     )
+#
+#                 if not isinstance(melodyNote, m21.note.Note):
+#                     continue
+#
+#                 # it's a Note
+#                 offset = melodyNote.getOffsetInHierarchy(mMeas)
+#                 dur = melodyNote.duration.quarterLength
+#                 chordSym: m21.harmony.ChordSymbol | None = (
+#                     MusicEngine.findChordSymbolOverlappingOffset(cMeas, offset)
+#                 )
+#                 # Figure out a voicing.
+#                 tenorLeadBariBass: FourNoteChord = (
+#                     MusicEngine.computeShoppedPillarChord(melodyNote, chordSym)
+#                 )
+#
+#                 MusicEngine.appendShoppedChord(tenorLeadBariBass, fourVoices)
 
         return shopped
 
