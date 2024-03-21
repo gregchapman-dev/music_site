@@ -207,27 +207,27 @@ class VocalRangeInfo:
 
         # How many semitones too low (relative to goalRange) are both ends of the range?
         # We take the float because we might have to do averaging and rounding.
-        lowEndSemitonesTooLow: float = currRange.lowest.ps - goalRange.lowest.ps
-        highEndSemitonesTooLow: float = currRange.highest.ps - goalRange.highest.ps
+        lowEndSemitonesTooLow: float = goalRange.lowest.ps - currRange.lowest.ps
+        highEndSemitonesTooLow: float = goalRange.highest.ps - currRange.highest.ps
 
-        semitonesTooLow: int = 0
+        semitonesTooLow: int = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
 
-        if lowEndSemitonesTooLow > 0:
-            # we need to transpose up a bit
-            if highEndSemitonesTooLow <= 0:
-                # no room to transpose up
-                # Strike a compromise
-                semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
-            else:
-                semitonesTooLow = round(lowEndSemitonesTooLow)
-        elif highEndSemitonesTooLow < 0:
-            # we need to transpose down a bit
-            if lowEndSemitonesTooLow >= 0:
-                # no room to transpose down
-                # Strike a compromise
-                semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
-            else:
-                semitonesTooLow = round(highEndSemitonesTooLow)
+        # if lowEndSemitonesTooLow > 0:
+        #     # we need to transpose up a bit
+        #     if highEndSemitonesTooLow <= 0:
+        #         # no room to transpose up
+        #         # Strike a compromise
+        #         semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
+        #     else:
+        #         semitonesTooLow = round(lowEndSemitonesTooLow)
+        # elif highEndSemitonesTooLow < 0:
+        #     # we need to transpose down a bit
+        #     if lowEndSemitonesTooLow >= 0:
+        #         # no room to transpose down
+        #         # Strike a compromise
+        #         semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
+        #     else:
+        #         semitonesTooLow = round(highEndSemitonesTooLow)
 
         return semitonesTooLow
 
