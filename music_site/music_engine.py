@@ -460,6 +460,15 @@ class MusicEngine:
         # any clefs/keysigs/timesigs in all the appropriate measures; and inserting
         # the chord symbols into the measures in the top staff).
 
+        # There are two data structures containing the four-Voice harmony parts:
+        # 1. shopped: m21.stream.Score/Parts/Measures/Voices
+        # 2. shoppedVoices: list[list[Voice]]
+        #       first list is one element per two-Measure grand staff
+        #       second list is the four Voices in that two-Measure grand staff
+        # The shoppedVoices list is there for ease of harmonization.
+
+        shoppedVoices: list[FourVoices] = []
+
         for mIdx, (mMeas, cMeas) in enumerate(
             zip(melody[m21.stream.Measure], chords[m21.stream.Measure])
         ):
@@ -526,18 +535,21 @@ class MusicEngine:
             # create two voices in each measure:
             # (tenor/lead in tlMeas, and bari/bass in bbMeas)
             tenor = m21.stream.Voice()
-            tenor.id = '1'
+            tenor.id = 'tenor'
             lead = m21.stream.Voice()
-            lead.id = '2'
+            lead.id = 'lead'
             tlMeas.insert(0, tenor)
             tlMeas.insert(0, lead)
 
             bari = m21.stream.Voice()
-            bari.id = '3'
+            bari.id = 'bari'
             bass = m21.stream.Voice()
-            bass.id = '4'
+            bass.id = 'bass'
             bbMeas.insert(0, bari)
             bbMeas.insert(0, bass)
+
+            # insert them also in the shoppedVoices list
+            shoppedVoices.append(FourVoices(tenor=tenor, lead=lead, bari=bari, bass=bass))
 
             # Walk all the ChordSymbols in cMeas and put them in tlMeas (so
             # they will display above the top staff).
