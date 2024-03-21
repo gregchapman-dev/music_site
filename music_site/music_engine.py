@@ -37,38 +37,39 @@ class PartName (MyStrEnum):
 
 
 class FourNoteChord(Sequence):
+    # intended to be read-only snapshot of a (possibly in-progress) chord
     def __init__(
         self,
-        tenor: m21.note.Note | m21.note.Rest,
-        lead: m21.note.Note | m21.note.Rest,
-        bari: m21.note.Note | m21.note.Rest,
-        bass: m21.note.Note | m21.note.Rest
+        tenor: m21.note.Note | m21.note.Rest | None = None,
+        lead: m21.note.Note | m21.note.Rest | None = None,
+        bari: m21.note.Note | m21.note.Rest | None = None,
+        bass: m21.note.Note | m21.note.Rest | None = None
     ):
-        self._tenor: m21.note.Note | m21.note.Rest = tenor
-        self._lead: m21.note.Note | m21.note.Rest = lead
-        self._bari: m21.note.Note | m21.note.Rest = bari
-        self._bass: m21.note.Note | m21.note.Rest = bass
+        self._tenor: m21.note.Note | m21.note.Rest | None = tenor
+        self._lead: m21.note.Note | m21.note.Rest | None = lead
+        self._bari: m21.note.Note | m21.note.Rest | None = bari
+        self._bass: m21.note.Note | m21.note.Rest | None = bass
 
     @property
-    def tenor(self) -> m21.note.Note | m21.note.Rest:
+    def tenor(self) -> m21.note.Note | m21.note.Rest | None:
         return self._tenor
 
     @property
-    def lead(self) -> m21.note.Note | m21.note.Rest:
+    def lead(self) -> m21.note.Note | m21.note.Rest | None:
         return self._lead
 
     @property
-    def bari(self) -> m21.note.Note | m21.note.Rest:
+    def bari(self) -> m21.note.Note | m21.note.Rest | None:
         return self._bari
 
     @property
-    def bass(self) -> m21.note.Note | m21.note.Rest:
+    def bass(self) -> m21.note.Note | m21.note.Rest | None:
         return self._bass
 
     def __len__(self) -> int:
         return 4
 
-    def __getitem__(self, idx: int | str | slice) -> t.Any:  # m21.note.Note | m21.note.Rest:
+    def __getitem__(self, idx: int | str | slice) -> t.Any:  # m21.note.Note|m21.note.Rest|None:
         if idx == 0 or idx == PartName.Tenor:
             return self.tenor
         if idx == 1 or idx == PartName.Lead:
@@ -79,7 +80,7 @@ class FourNoteChord(Sequence):
             return self.bass
 
         # we don't support slicing (or out-of-range idx)
-        raise IndexError()
+        raise IndexError(idx)
 
 class FourVoices(Sequence):
     def __init__(
@@ -113,7 +114,7 @@ class FourVoices(Sequence):
     def __len__(self) -> int:
         return 4
 
-    def __getitem__(self, idx: int | slice) -> t.Any:  # m21.stream.Voice:
+    def __getitem__(self, idx: int | str | slice) -> t.Any:  # m21.stream.Voice:
         if idx == 0 or idx == PartName.Tenor:
             return self.tenor
         if idx == 1 or idx == PartName.Lead:
@@ -403,6 +404,13 @@ class MusicEngine:
         with m21.stream.makeNotation.saveAccidentalDisplayStatus(score):
             score.transpose(interval, inPlace=True)
 
+    STEM_DIRECTION: dict[PartName, str] = {
+        PartName.Tenor: 'up',
+        PartName.Lead: 'down',
+        PartName.Bari: 'up',
+        PartName.Bass: 'down'
+    }
+
     @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
@@ -455,11 +463,6 @@ class MusicEngine:
         bbStaff: m21.stream.Part = m21.stream.Part()
         shopped.insert(0, bbStaff)
 
-        # First we process the melody into the lead part (creating the entire output
-        # score structure as we go, including parts, measures, and voices; inserting
-        # any clefs/keysigs/timesigs in all the appropriate measures; and inserting
-        # the chord symbols into the measures in the top staff).
-
         # There are two data structures containing the four-Voice harmony parts:
         # 1. shopped: m21.stream.Score/Parts/Measures/Voices
         # 2. shoppedVoices: list[list[Voice]]
@@ -469,6 +472,10 @@ class MusicEngine:
 
         shoppedVoices: list[FourVoices] = []
 
+        # First we process the melody into the lead part (creating the entire output
+        # score structures as we go, including parts, measures, and voices; inserting
+        # any clefs/keysigs/timesigs in all the appropriate measures; and inserting
+        # the chord symbols into the measures in the top staff).
         for mIdx, (mMeas, cMeas) in enumerate(
             zip(melody[m21.stream.Measure], chords[m21.stream.Measure])
         ):
@@ -548,7 +555,7 @@ class MusicEngine:
             bbMeas.insert(0, bari)
             bbMeas.insert(0, bass)
 
-            # insert them also in the shoppedVoices list
+            # insert them also in the shoppedVoices list as FourVoices
             shoppedVoices.append(FourVoices(tenor=tenor, lead=lead, bari=bari, bass=bass))
 
             # Walk all the ChordSymbols in cMeas and put them in tlMeas (so
@@ -566,9 +573,10 @@ class MusicEngine:
                 if el in measureStuff:
                     continue
                 offset = el.getOffsetInHierarchy(mMeas)
+                el = deepcopy(el)
+                if isinstance(el, m21.note.NotRest):
+                    el.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Lead]
                 lead.insert(offset, el)
-
-        raise Exception
 
         # Then we will harmonize the three harmony parts, one at a time all the way
         # through, harmonizing only the melody notes that are in the specified chord
@@ -594,162 +602,322 @@ class MusicEngine:
         #           changing the bass or tenor note if it leads to a smoother baritone
         #           part.
 
-        for currPart in (PartName.Bass, PartName.Tenor, PartName.Bari):
-            pass
+        for partName in (PartName.Bass, PartName.Tenor, PartName.Bari):
+            currMeasure: FourVoices
+            for mIdx, (currMeasure, chordMeas) in enumerate(
+                zip(shoppedVoices, chords[m21.stream.Measure])
+            ):
+                # fillVoice is the measure-long single voice part we will be filling
+                # in with harmony notes for each pillar note in the lead voice (the
+                # rest of the non-pillar notes in the lead voice will just generate
+                # a space in theVoice).
 
-#         for mMeas, cMeas in zip(melody[m21.stream.Measure], chords[m21.stream.Measure]):
-#             voices = list(mMeas.voices)
-#             if voices:
-#                 mVoice = voices[0]
-#             else:
-#                 mVoice = mMeas
-#
-#             tlMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
-#             tlStaff.append(tlMeas)
-#
-#             if tlClef is not None:
-#                 tlMeas.insert(0, tlClef)
-#                 tlClef = None
-#
-#             tenor = m21.stream.Voice()
-#             tenor.id = '1'
-#             lead = m21.stream.Voice()
-#             lead.id = '2'
-#             tlMeas.insert(0, tenor)
-#             tlMeas.insert(0, lead)
-#
-#             bbMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
-#             bbStaff.append(bbMeas)
-#
-#             if bbClef is not None:
-#                 bbMeas.insert(0, bbClef)
-#                 bbClef = None
-#
-#             bari = m21.stream.Voice()
-#             bari.id = '3'
-#             bass = m21.stream.Voice()
-#             bass.id = '4'
-#             tlMeas.insert(0, bari)
-#             tlMeas.insert(0, bass)
-#
-#             fourVoices: FourVoices = FourVoices(tenor=tenor, lead=lead, bari=bari, bass=bass)
-#
-#
-#             for melodyNote in mVoice:
-#                 if isinstance(melodyNote, m21.harmony.ChordSymbol):
-#                     # melody part might be same as chords part (which we are walking separately),
-#                     # so just skip over this
-#                     continue
-#                 if isinstance(melodyNote, m21.note.Rest):
-#                     MusicEngine.appendDeepCopyTo(melodyNote, fourVoices)
-#                     continue
-#                 if isinstance(melodyNote, m21.chord.Chord):
-#                     raise MusicEngineException(
-#                         'Chord (not ChordSymbol) found in leadsheet melody'
-#                     )
-#
-#                 if not isinstance(melodyNote, m21.note.Note):
-#                     continue
-#
-#                 # it's a Note
-#                 offset = melodyNote.getOffsetInHierarchy(mMeas)
-#                 dur = melodyNote.duration.quarterLength
-#                 chordSym: m21.harmony.ChordSymbol | None = (
-#                     MusicEngine.findChordSymbolOverlappingOffset(cMeas, offset)
-#                 )
-#                 # Figure out a voicing.
-#                 tenorLeadBariBass: FourNoteChord = (
-#                     MusicEngine.computeShoppedPillarChord(melodyNote, chordSym)
-#                 )
-#
-#                 MusicEngine.appendShoppedChord(tenorLeadBariBass, fourVoices)
+                # prevMeasure is the previous measure of all four voices (too look
+                # at for voice-leading decisions).
+                prevMeasure: FourVoices | None = None
+                if mIdx > 0:
+                    prevMeasure = shoppedVoices[mIdx - 1]
+
+                leadVoice: m21.stream.Voice = currMeasure[PartName.Lead]
+                for el in leadVoice:
+                    if isinstance(el, m21.harmony.ChordSymbol):
+                        continue
+                    if isinstance(el, m21.chord.Chord):
+                        raise MusicEngineException(
+                            'Chord (not ChordSymbol) found in leadsheet melody'
+                        )
+
+                    if isinstance(el, m21.note.Rest):
+                        # a rest in the lead is a rest in the other three parts
+                        currMeasure[PartName.Tenor].insert(offset, deepcopy(el))
+                        currMeasure[PartName.Bari].insert(offset, deepcopy(el))
+                        currMeasure[PartName.Bass].insert(offset, deepcopy(el))
+                        continue
+
+                    if not isinstance(el, m21.note.Note):
+                        continue
+
+                    # it's a Note
+                    leadNote: m21.note.Note = el
+                    offset = leadNote.getOffsetInHierarchy(leadVoice)
+                    ql: OffsetQL = leadNote.quarterLength
+                    chordSym: m21.harmony.ChordSymbol | None = (
+                        MusicEngine.findChordSymbolOverlappingOffset(chordMeas, offset)
+                    )
+
+                    if chordSym is None or isinstance(chordSym, m21.harmony.NoChord):
+                        # Must be a melody pickup before the first chord, or a place
+                        # in the music where there is specifically no chord at all.
+                        # Put (visible) rests in the other three parts.
+                        rest: m21.note.Rest = m21.note.Rest()
+                        rest.quarterLength = leadNote.quarterLength
+
+                        currMeasure[PartName.Tenor].insert(offset, rest)
+                        currMeasure[PartName.Bari].insert(offset, deepcopy(rest))
+                        currMeasure[PartName.Bass].insert(offset, deepcopy(rest))
+                        continue
+
+                    chordPitchNames: list[str] = [p.name for p in chordSym.pitches]
+                    if leadNote.pitch.name not in chordPitchNames:
+                        # lead is not on a pillar chord note, fill in bass/tenor/bari with
+                        # spaces (invisible rests).
+                        space: m21.note.Rest = m21.note.Rest()
+                        space.quarterLength = leadNote.quarterLength
+                        space.style.hideObjectOnPrint = True
+
+                        currMeasure[PartName.Tenor].insert(offset, space)
+                        currMeasure[PartName.Bari].insert(offset, deepcopy(space))
+                        currMeasure[PartName.Bass].insert(offset, deepcopy(space))
+                        continue
+
+                    # Lead has a pillar chord note.  Fill in the <partName> note
+                    # (potentially adjusting other non-lead notes to improve
+                    # voice leading).
+                    # Params:
+                    #   partName: PartName, which part we are harmonizing (might adjust others)
+                    #   currMeasure: FourVoices, where we insert(and adjust) the note(s))
+                    #   offset: OffsetQL, offset in currMeasure[x] where we are working
+                    #   thisChord: FourNoteChord (read-only), for ease of looking up and down
+                    #   prevChord: FourNoteChord (read-only), for ease of looking back
+                    thisChord: FourNoteChord = (
+                        MusicEngine.getChordAtOffset(currMeasure, offset)
+                    )
+                    prevChord: FourNoteChord = (
+                        MusicEngine.getPreviousChordBeforeOffset(currMeasure, prevMeasure, offset)
+                    )
+
+                    MusicEngine.harmonizePillarChordPart(
+                        partName,
+                        currMeasure,
+                        offset,
+                        thisChord,
+                        prevChord
+                    )
 
         return shopped
 
     @staticmethod
-    def computeShoppedPillarChord(
-        melodyNote: m21.note.Note,
-        chordSym: m21.harmony.ChordSymbol | None
+    def harmonizePillarChordPart(
+        partName: PartName,
+        measure: FourVoices,
+        offset: OffsetQL,
+        thisChord: FourNoteChord,
+        prevChord: FourNoteChord
+    ):
+        pass
+
+    @staticmethod
+    def getChordAtOffset(
+        measure: FourVoices,
+        offset: OffsetQL
     ) -> FourNoteChord:
-        # returns four notes: tenor, lead, bari, bass
-        tenor: m21.note.Note | m21.note.Rest
-        lead: m21.note.Note
-        bari: m21.note.Note | m21.note.Rest
-        bass: m21.note.Note | m21.note.Rest
+        tenor: m21.note.Note | m21.note.Rest | None = None
+        lead: m21.note.Note | m21.note.Rest | None = None
+        bari: m21.note.Note | m21.note.Rest | None = None
+        bass: m21.note.Note | m21.note.Rest | None = None
 
-        lead = deepcopy(melodyNote)
+        tenorVoice: m21.stream.Voice = measure[PartName.Tenor]
+        tenorNotes: list[m21.note.Note | m21.note.Rest] = list(
+            tenorVoice.recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(offset)
+        )
+        if tenorNotes:
+            tenor = tenorNotes[0]
 
-        if chordSym is None or isinstance(chordSym, m21.harmony.NoChord):
-            # Must be a melody pickup before the first chord, or a place
-            # in the music where there is specifically no chord at all.
-            # Put rests in the other three parts.
-            tenor = m21.note.Rest()
-            tenor.duration.quarterLength = melodyNote.duration.quarterLength
-            bari = deepcopy(tenor)
-            bass = deepcopy(tenor)
-            return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+        leadNotes: list[m21.note.Note | m21.note.Rest] = list(
+            measure[PartName.Lead].recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(offset)
+        )
+        if leadNotes:
+            lead = leadNotes[0]
 
-        # for now, only support root, third, fifth, seventh(if present)
-        root: m21.pitch.Pitch = chordSym.root()
-        third: m21.pitch.Pitch = chordSym.third
-        fifth: m21.pitch.Pitch = chordSym.fifth
-        seventh: m21.pitch.Pitch | None = chordSym.seventh
+        bariNotes: list[m21.note.Note | m21.note.Rest] = list(
+            measure[PartName.Bari].recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(offset)
+        )
+        if bariNotes:
+            bari = bariNotes[0]
 
-        if seventh is None:
-            # Basic triad, double the root
-            if lead.pitch.name == root.name:
-                # is lead on low root or high root?
-                if lead.pitch > m21.pitch.Pitch('F3'):
-                    # lead is on high-enough root that bass can be an octave below
-                    bass = MusicEngine.makeNote(root.name, below=lead)
-                else:
-                    # lead is on too-low a root for bass an octave below.
-                    # bass gets exactly the same note as lead
-                    bass = deepcopy(lead)
-
-                # tenor on third, above the lead
-                tenor = MusicEngine.makeNote(third.name, above=lead)
-
-                # bari on fifth, below the lead
-                bari = MusicEngine.makeNote(fifth.name, below=lead)
-
-            elif lead.pitch.name == fifth.name:
-                # lead on fifth: bass gets root below lead
-                # bari gets root above the lead, tenor gets third above bari
-                bass = MusicEngine.makeNote(root.name, below=lead)
-                bari = MusicEngine.makeNote(root.name, above=lead)
-                tenor = MusicEngine.makeNote(third.name, above=bari)
-
-            elif lead.pitch.name == third.name:
-                # lead on third: Choices are tenor on fifth above lead, tenor on root below lead,
-                # tenor on root above lead.
-                # if lead is high, bass gets root (a 10th below lead), tenor gets root below lead,
-                # bari gets fifth below lead
-                # if lead is low, bass gets root (a 3rd below lead) tenor gets root above lead,
-                # bari gets fifth above lead
-
-                # Example code here for high lead (showing off extraOctaves usage)
-                bass = MusicEngine.makeNote(root.name, below=lead, extraOctaves=1)
-                tenor = MusicEngine.makeNote(root.name, below=lead)
-                bari = MusicEngine.makeNote(fifth.name, above=lead)
-
-            else:
-                # lead is not on a pillar chord note, fill in bass/tenor/bari with spaces
-                bass = m21.note.Rest(lead.duration.quarterLength)
-                bass.style.hideObjectOnPrint = True
-                tenor = deepcopy(bass)
-                bari = deepcopy(bass)
-
-        # Specify stem directions explicitly
-        if isinstance(tenor, m21.note.Note):
-            tenor.stemDirection = 'up'
-        lead.stemDirection = 'down'
-        if isinstance(bari, m21.note.Note):
-            bari.stemDirection = 'up'
-        if isinstance(bass, m21.note.Note):
-            bass.stemDirection = 'down'
+        bassNotes: list[m21.note.Note | m21.note.Rest] = list(
+            measure[PartName.Bass].recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(offset)
+        )
+        if bassNotes:
+            bass = bassNotes[0]
 
         return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+
+    @staticmethod
+    def getPreviousChordBeforeOffset(
+        measure: FourVoices,
+        prevMeasure: FourVoices | None,
+        offset: OffsetQL
+    ) -> FourNoteChord:
+        tenor: m21.note.Note | m21.note.Rest | None
+        lead: m21.note.Note | m21.note.Rest | None
+        bari: m21.note.Note | m21.note.Rest | None
+        bass: m21.note.Note | m21.note.Rest | None
+        tenorNotes: list[m21.note.Note | m21.note.Rest]
+        leadNotes: list[m21.note.Note | m21.note.Rest]
+        bariNotes: list[m21.note.Note | m21.note.Rest]
+        bassNotes: list[m21.note.Note | m21.note.Rest]
+
+        if offset == 0:
+            if prevMeasure is None:
+                # there is no previous chord, return an empty FourNoteChord (all Nones)
+                return FourNoteChord()
+
+            tenor = None
+            lead = None
+            bari = None
+            bass = None
+            # gotta grab last chord in prevMeasure instead
+            tenorNotes = list(prevMeasure[PartName.Tenor]
+                .getElementsByClass([m21.note.Note, m21.note.Rest]))
+            if tenorNotes:
+                tenor = tenorNotes[-1]
+
+            leadNotes = list(prevMeasure[PartName.Lead]
+                .getElementsByClass([m21.note.Note, m21.note.Rest]))
+            if leadNotes:
+                lead = leadNotes[-1]
+
+            bariNotes = list(prevMeasure[PartName.Bari]
+                .getElementsByClass([m21.note.Note, m21.note.Rest]))
+            if bariNotes:
+                bari = bariNotes[-1]
+
+            bassNotes = list(prevMeasure[PartName.Bass]
+                .getElementsByClass([m21.note.Note, m21.note.Rest]))
+            if bassNotes:
+                bass = bassNotes[-1]
+
+            return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+
+        # Non-zero offset, don't need prevMeasure at all, just get all the
+        # notes/rests in the voice up to (but not including) offset, and
+        # return the last one.
+        tenor = None
+        lead = None
+        bari = None
+        bass = None
+
+        tenorNotes = list(
+            measure[PartName.Tenor].recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(
+                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+        )
+        if tenorNotes:
+            tenor = tenorNotes[-1]
+
+        leadNotes = list(
+            measure[PartName.Lead].recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(
+                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+        )
+        if leadNotes:
+            lead = leadNotes[-1]
+
+        bariNotes = list(
+            measure[PartName.Bari].recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(
+                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+        )
+        if bariNotes:
+            bari = bariNotes[-1]
+
+        bassNotes = list(
+            measure[PartName.Bass].recurse()
+                .getElementsByClass([m21.note.Note, m21.note.Rest])
+                .getElementsByOffsetInHierarchy(
+                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+        )
+        if bassNotes:
+            bass = bassNotes[-1]
+
+        return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+
+#     @staticmethod
+#     def computeShoppedPillarChord(
+#         melodyNote: m21.note.Note,
+#         chordSym: m21.harmony.ChordSymbol
+#     ) -> FourNoteChord:
+#         # returns four notes: tenor, lead, bari, bass
+#         tenor: m21.note.Note | m21.note.Rest
+#         lead: m21.note.Note
+#         bari: m21.note.Note | m21.note.Rest
+#         bass: m21.note.Note | m21.note.Rest
+#
+#         lead = deepcopy(melodyNote)
+#
+#         # for now, only support root, third, fifth, seventh(if present)
+#         root: m21.pitch.Pitch = chordSym.root()
+#         third: m21.pitch.Pitch = chordSym.third
+#         fifth: m21.pitch.Pitch = chordSym.fifth
+#         seventh: m21.pitch.Pitch | None = chordSym.seventh
+#
+#         if seventh is None:
+#             # Basic triad, double the root
+#             if lead.pitch.name == root.name:
+#                 # is lead on low root or high root?
+#                 if lead.pitch > m21.pitch.Pitch('F3'):
+#                     # lead is on high-enough root that bass can be an octave below
+#                     bass = MusicEngine.makeNote(root.name, below=lead)
+#                 else:
+#                     # lead is on too-low a root for bass an octave below.
+#                     # bass gets exactly the same note as lead
+#                     bass = deepcopy(lead)
+#
+#                 # tenor on third, above the lead
+#                 tenor = MusicEngine.makeNote(third.name, above=lead)
+#
+#                 # bari on fifth, below the lead
+#                 bari = MusicEngine.makeNote(fifth.name, below=lead)
+#
+#             elif lead.pitch.name == fifth.name:
+#                 # lead on fifth: bass gets root below lead
+#                 # bari gets root above the lead, tenor gets third above bari
+#                 bass = MusicEngine.makeNote(root.name, below=lead)
+#                 bari = MusicEngine.makeNote(root.name, above=lead)
+#                 tenor = MusicEngine.makeNote(third.name, above=bari)
+#
+#             elif lead.pitch.name == third.name:
+#                 # lead on third: Choices are tenor on fifth above lead, tenor on root below lead,
+#                 # tenor on root above lead.
+#                 # if lead is high, bass gets root (a 10th below lead), tenor gets root below lead,
+#                 # bari gets fifth below lead
+#                 # if lead is low, bass gets root (a 3rd below lead) tenor gets root above lead,
+#                 # bari gets fifth above lead
+#
+#                 # Example code here for high lead (showing off extraOctaves usage)
+#                 bass = MusicEngine.makeNote(root.name, below=lead, extraOctaves=1)
+#                 tenor = MusicEngine.makeNote(root.name, below=lead)
+#                 bari = MusicEngine.makeNote(fifth.name, above=lead)
+#
+#             else:
+#                 # lead is not on a pillar chord note, fill in bass/tenor/bari with spaces
+#                 bass = m21.note.Rest(lead.duration.quarterLength)
+#                 bass.style.hideObjectOnPrint = True
+#                 tenor = deepcopy(bass)
+#                 bari = deepcopy(bass)
+#
+#         # Specify stem directions explicitly
+#         if isinstance(tenor, m21.note.Note):
+#             tenor.stemDirection = 'up'
+#         lead.stemDirection = 'down'
+#         if isinstance(bari, m21.note.Note):
+#             bari.stemDirection = 'up'
+#         if isinstance(bass, m21.note.Note):
+#             bass.stemDirection = 'down'
+#
+#         return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
 
     @staticmethod
     def makeNote(
