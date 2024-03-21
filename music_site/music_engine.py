@@ -468,9 +468,9 @@ class MusicEngine:
             measureStuff: list[m21.base.Music21Object] = []
 
             # create and append the next tlMeas and bbMeas
-            tlMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
+            tlMeas = m21.stream.Measure(number=mMeas.measureNumberWithSuffix())
             tlStaff.append(tlMeas)
-            bbMeas = m21.stream.Measure(num=mMeas.measureNumberWithSuffix)
+            bbMeas = m21.stream.Measure(number=mMeas.measureNumberWithSuffix())
             bbStaff.append(bbMeas)
 
             if mIdx == 0:
