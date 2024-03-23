@@ -780,6 +780,7 @@ class MusicEngine:
     @staticmethod
     def getChordParts(chordSym: m21.harmony.ChordSymbol) -> tuple[str, str, str, str | None]:
         # returns root, third, fifth, and optional seventh pitch names
+        # It will do more later, but ALWAYS must return in order from root upwards.
         root: str = chordSym.root().name
         third: str = chordSym.third.name
         fifth: str = chordSym.fifth.name
@@ -836,25 +837,82 @@ class MusicEngine:
                 if partRange.isTooLow(bass.pitch):
                     # still too low, just sing the same note (root) as the lead
                     bass = deepcopy(lead)
+
+            elif lead.pitch.name == third:
+                # Lead is on third, take root a 10th below
+                bass = MusicEngine.makeNote(root, below=lead, extraOctaves=1)
+                if partRange.isTooLow(bass.pitch):
+                    # Take fifth (below the lead's third)
+                    bass = MusicEngine.makeNote(fifth, below=lead)
+                    if partRange.isTooLow(bass.pitch):
+                        # Fine, take the root just below the lead's third
+                        bass = MusicEngine.makeNote(third, below=lead)
+
             elif lead.pitch.name == fifth:
                 # Lead is on fifth, take root below
                 bass = MusicEngine.makeNote(root, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     # Ugh. Lead must be really low. Push the lead up to
                     # the next higher root, and take the lead note yourself.
-                    bass = deepcopy(lead)  # fifth
-                    lead = MusicEngine.makeAndInsertNote(
+                    bass = deepcopy(lead)  # fifth, assume it's in bass range
+                    lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         root,
                         above=bass,
                         replacedNote=lead,
                         voice=measure[PartName.Lead],
                         offset=offset,
                     )
-                    # remove the lead note from lead voice first
-                    measure[PartName.Lead].remove(lead)
-                    lead = MusicEngine.makeNote(root, above=bass)
-                    # and insert the new lead note
-                    measure[PartName.Lead].insert(offset, lead)
+
+            else:
+                # Should never happen, because we wouldn't call this routine if
+                # the lead wasn't on a chord note.
+                raise MusicEngineException(
+                    'harmonizePillarChordBass: lead note not in pillar chord'
+                )
+        else:
+            # There are at least four parts.  For now assume they are root, third, fifth, seventh.
+            #
+            # In future, if it's an eleventh chord (for example) we should pick which four notes
+            # we want to sing, and maybe figure out that they make a different four note chord,
+            # and we might then rename the notes root, third, fifth, and seventh.  For example, a
+            # C11 chord (generally consisting of 5 chord tones: root, fifth, seventh, ninth, 11th)
+            # is C, G, Bb, D, F, and we might choose to drop the root and use G, Bb, D, F,
+            # calling them root, third, fifth, and seventh of a Gm7 chord.
+            if lead.pitch.name == root:
+                # put bass on fifth below lead, or raise lead to fifth and take lead's root)
+                bass = MusicEngine.makeNote(fifth, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    bass = deepcopy(lead)  # assume it's in bass range
+                    lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
+                        fifth,
+                        above=bass,
+                        replacedNote=lead,
+                        voice=measure[PartName.Lead],
+                        offset=offset
+                    )
+
+            elif lead.pitch.name == third:
+                bass = MusicEngine.makeNote(fifth, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    bass = MusicEngine.makeNote(root, below=lead)
+
+            elif lead.pitch.name == fifth:
+                bass = MusicEngine.makeNote(root, below=lead)  # assume in bass range
+
+            elif lead.pitch.name == seventh:
+                # put bass on fifth, a 3rd below the lead (or a 10th below if that's too high)
+                bass = MusicEngine.makeNote(fifth, below=lead)
+                if partRange.isTooHigh(bass.pitch):
+                    bass = MusicEngine.makeNote(fifth, below=lead, extraOctaves=1)
+
+            else:
+                # Should never happen, because we wouldn't call this routine if
+                # the lead wasn't on a chord note.
+                raise MusicEngineException(
+                    'harmonizePillarChordBass: lead note not in pillar chord'
+                )
+
+        # Put the bass note in the bass voice
         bassVoice: m21.stream.Voice = measure[PartName.Bass]
         bassVoice.insert(offset, bass)
 
@@ -889,12 +947,33 @@ class MusicEngine:
         root, third, fifth, seventh = MusicEngine.getChordParts(pillarChordSym)
         availablePitchNames: list[str] = thisChord.getAvailablePitchNames(pillarChordSym)
 
-        lead: m21.note.Note | m21.note.Rest = thisChord[PartName.Lead]
-        tenor: m21.note.Note | m21.note.Rest
+        lead: m21.note.Note = thisChord[PartName.Lead]
+        tenor: m21.note.Note | None = None
 
-        if pillarChordSym.isTriad:
-            # Basic triad, you should double the root since there is no seventh
-            pass
+        if t.TYPE_CHECKING:
+            assert(isinstance(lead, m21.note.Note))
+
+        # First attempt: Just go for what's available, starting with the available
+        # notes above the lead (preferring closer-to-the-lead notes), then the
+        # available notes below the lead (preferring closer-to-the-lead notes).
+        orderedPitchNames: list[str] = MusicEngine.orderPitchNamesStartingAbove(
+            availablePitchNames,
+            lead.pitch.name
+        )
+
+        for p in orderedPitchNames:
+            tenor = MusicEngine.makeNote(p, above=lead)
+            if partRange.isInRange(tenor.pitch):
+                break
+
+        if tenor is None or partRange.isOutOfRange(tenor.pitch):
+            for p in reversed(orderedPitchNames):
+                tenor = MusicEngine.makeNote(p, below=lead)
+                if partRange.isInRange(tenor.pitch):
+                    break
+
+        if tenor is None or partRange.isOutOfRange(tenor.pitch):
+            raise MusicEngineException('failed to find a tenor note for a pillar chord')
 
         tenorVoice: m21.stream.Voice = measure[PartName.Tenor]
         tenorVoice.insert(offset, tenor)
@@ -930,83 +1009,34 @@ class MusicEngine:
         root, third, fifth, seventh = MusicEngine.getChordParts(pillarChordSym)
         availablePitchNames: list[str] = thisChord.getAvailablePitchNames(pillarChordSym)
 
-        lead: m21.note.Note | m21.note.Rest = thisChord[PartName.Lead]
-        bari: m21.note.Note | m21.note.Rest
+        lead: m21.note.Note = thisChord[PartName.Lead]
+        tenor: m21.note.Note = thisChord[PartName.Tenor]
 
-        if pillarChordSym.isTriad:
-            # Basic triad, you should double the root since there is no seventh
-            pass
+        # bari gets whatever is left over (we can improve voice leading by trading notes,
+        # obviously, but for now this is it).
+        bari: m21.note.Note = MusicEngine.makeNote(availablePitchNames[0], below=tenor)
+        if partRange.isTooHigh(bari.pitch):
+            bari = MusicEngine.makeNote(availablePitchNames[0], below=tenor, extraOctaves=1)
+
+        if partRange.isOutOfRange(bari.pitch):
+            raise MusicEngineException('failed to find a bari note for a pillar chord')
 
         bariVoice: m21.stream.Voice = measure[PartName.Bari]
         bariVoice.insert(offset, bari)
 
-#     @staticmethod
-#     def computeShoppedPillarChord(
-#         melodyNote: m21.note.Note,
-#         chordSym: m21.harmony.ChordSymbol
-#     ) -> FourNoteChord:
-#         # returns four notes: tenor, lead, bari, bass
-#         tenor: m21.note.Note | m21.note.Rest
-#         lead: m21.note.Note
-#         bari: m21.note.Note | m21.note.Rest
-#         bass: m21.note.Note | m21.note.Rest
-#
-#         lead = deepcopy(melodyNote)
-#
-#         # for now, only support root, third, fifth, seventh(if present)
-#         root: m21.pitch.Pitch = chordSym.root()
-#         third: m21.pitch.Pitch = chordSym.third
-#         fifth: m21.pitch.Pitch = chordSym.fifth
-#         seventh: m21.pitch.Pitch | None = chordSym.seventh
-#
-#         if seventh is None:
-#             # Basic triad, double the root
-#             if lead.pitch.name == root.name:
-#                 # is lead on low root or high root?
-#                 if lead.pitch > m21.pitch.Pitch('F3'):
-#                     # lead is on high-enough root that bass can be an octave below
-#                     bass = MusicEngine.makeNote(root.name, below=lead)
-#                 else:
-#                     # lead is on too-low a root for bass an octave below.
-#                     # bass gets exactly the same note as lead
-#                     bass = deepcopy(lead)
-#
-#                 # tenor on third, above the lead
-#                 tenor = MusicEngine.makeNote(third.name, above=lead)
-#
-#                 # bari on fifth, below the lead
-#                 bari = MusicEngine.makeNote(fifth.name, below=lead)
-#
-#             elif lead.pitch.name == fifth.name:
-#                 # lead on fifth: bass gets root below lead
-#                 # bari gets root above the lead, tenor gets third above bari
-#                 bass = MusicEngine.makeNote(root.name, below=lead)
-#                 bari = MusicEngine.makeNote(root.name, above=lead)
-#                 tenor = MusicEngine.makeNote(third.name, above=bari)
-#
-#             elif lead.pitch.name == third.name:
-#                 # lead on third: Choices are tenor on fifth above lead, tenor on root below lead,
-#                 # tenor on root above lead.
-#                 # if lead is high, bass gets root (a 10th below lead), tenor gets root below lead,
-#                 # bari gets fifth below lead
-#                 # if lead is low, bass gets root (a 3rd below lead) tenor gets root above lead,
-#                 # bari gets fifth above lead
-#
-#                 # Example code here for high lead (showing off extraOctaves usage)
-#                 bass = MusicEngine.makeNote(root.name, below=lead, extraOctaves=1)
-#                 tenor = MusicEngine.makeNote(root.name, below=lead)
-#                 bari = MusicEngine.makeNote(fifth.name, above=lead)
-#
-#         # Specify stem directions explicitly
-#         if isinstance(tenor, m21.note.Note):
-#             tenor.stemDirection = 'up'
-#         lead.stemDirection = 'down'
-#         if isinstance(bari, m21.note.Note):
-#             bari.stemDirection = 'up'
-#         if isinstance(bass, m21.note.Note):
-#             bass.stemDirection = 'down'
-#
-#         return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+    @staticmethod
+    def orderPitchNamesStartingAbove(pitches: list[str], baseName: str) -> list[str]:
+        def semitonesAboveBaseName(pitchName: str) -> int:
+            pitch = m21.pitch.Pitch(pitchName)
+            basePitch = m21.pitch.Pitch(baseName)
+            intv: m21.interval.Interval = m21.interval.Interval(basePitch, pitch)
+            semitones: float = intv.chromatic.semitones
+            if semitones == 0:
+                semitones = 12  # put baseName at end of list, not start
+            return round(semitones)
+
+        sortedPitches = sorted(pitches, key=semitonesAboveBaseName)
+        return sortedPitches
 
     @staticmethod
     def getChordAtOffset(
