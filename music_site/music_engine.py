@@ -692,10 +692,10 @@ class MusicEngine:
 
                 # it's a Note
                 leadNote: m21.note.Note = el
-                offset = leadNote.getOffsetInHierarchy(leadVoice)
+                leadNoteOffset: OffsetQL = leadNote.getOffsetInHierarchy(leadVoice)
                 ql: OffsetQL = leadNote.quarterLength
                 chordSym: m21.harmony.ChordSymbol | None = (
-                    MusicEngine.findChordSymbolOverlappingOffset(chordMeas, offset)
+                    MusicEngine.findChordSymbolOverlappingOffset(chordMeas, leadNoteOffset)
                 )
 
                 if chordSym is None or isinstance(chordSym, m21.harmony.NoChord):
@@ -705,7 +705,7 @@ class MusicEngine:
                     # Put (visible) rests in the other three parts.
                     rest: m21.note.Rest = m21.note.Rest()
                     rest.quarterLength = leadNote.quarterLength
-                    currMeasure[partName].insert(offset, rest)
+                    currMeasure[partName].insert(leadNoteOffset, rest)
                     continue
 
                 if leadNote.pitch.name not in MusicEngine.getChordPitchNames(chordSym):
@@ -714,7 +714,7 @@ class MusicEngine:
                     space: m21.note.Rest = m21.note.Rest()
                     space.quarterLength = leadNote.quarterLength
                     space.style.hideObjectOnPrint = True
-                    currMeasure[partName].insert(offset, space)
+                    currMeasure[partName].insert(leadNoteOffset, space)
                     continue
 
                 # Lead has a pillar chord note.  Fill in the <partName> note
@@ -723,21 +723,21 @@ class MusicEngine:
                 # Params:
                 #   partName: PartName, which part we are harmonizing (might adjust others)
                 #   currMeasure: FourVoices, where we insert(and adjust) the note(s))
-                #   offset: OffsetQL, offset in currMeasure[x] where we are working
+                #   leadNoteOffset: OffsetQL, offset in currMeasure[x] where we are working
                 #   thisChord: FourNoteChord (read-only), for ease of looking up and down
                 #   prevChord: FourNoteChord (read-only), for ease of looking back
                 thisChord: FourNoteChord = (
-                    MusicEngine.getChordAtOffset(currMeasure, offset)
+                    MusicEngine.getChordAtOffset(currMeasure, leadNoteOffset)
                 )
                 prevChord: FourNoteChord = (
-                    MusicEngine.getChordBeforeOffset(currMeasure, prevMeasure, offset)
+                    MusicEngine.getChordBeforeOffset(currMeasure, prevMeasure, leadNoteOffset)
                 )
 
                 if partName == PartName.Bass:
                     MusicEngine.harmonizePillarChordBass(
                         arrType,
                         currMeasure,
-                        offset,
+                        leadNoteOffset,
                         chordSym,
                         thisChord,
                         prevChord
@@ -746,7 +746,7 @@ class MusicEngine:
                     MusicEngine.harmonizePillarChordTenor(
                         arrType,
                         currMeasure,
-                        offset,
+                        leadNoteOffset,
                         chordSym,
                         thisChord,
                         prevChord
@@ -755,7 +755,7 @@ class MusicEngine:
                     MusicEngine.harmonizePillarChordBari(
                         arrType,
                         currMeasure,
-                        offset,
+                        leadNoteOffset,
                         chordSym,
                         thisChord,
                         prevChord
@@ -821,15 +821,40 @@ class MusicEngine:
         fifth: str
         seventh: str | None
         root, third, fifth, seventh = MusicEngine.getChordParts(pillarChordSym)
-        availablePitchNames: list[str] = thisChord.getAvailablePitchNames(pillarChordSym)
 
-        lead: m21.note.Note | m21.note.Rest = thisChord[PartName.Lead]
-        bass: m21.note.Note | m21.note.Rest
+        lead: m21.note.Note = thisChord[PartName.Lead]
+        bass: m21.note.Note
 
         if pillarChordSym.isTriad:
             # Basic triad, you should double the root since there is no seventh
-            pass
-
+            if lead.pitch.name == root:
+                # Lead is on root, take doubled root an octave below
+                bass = MusicEngine.makeNote(root, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    # octave below is too low, try fifth below
+                    bass = MusicEngine.makeNote(fifth, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    # still too low, just sing the same note (root) as the lead
+                    bass = deepcopy(lead)
+            elif lead.pitch.name == fifth:
+                # Lead is on fifth, take root below
+                bass = MusicEngine.makeNote(root, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    # Ugh. Lead must be really low. Push the lead up to
+                    # the next higher root, and take the lead note yourself.
+                    bass = deepcopy(lead)  # fifth
+                    lead = MusicEngine.makeAndInsertNote(
+                        root,
+                        above=bass,
+                        replacedNote=lead,
+                        voice=measure[PartName.Lead],
+                        offset=offset,
+                    )
+                    # remove the lead note from lead voice first
+                    measure[PartName.Lead].remove(lead)
+                    lead = MusicEngine.makeNote(root, above=bass)
+                    # and insert the new lead note
+                    measure[PartName.Lead].insert(offset, lead)
         bassVoice: m21.stream.Voice = measure[PartName.Bass]
         bassVoice.insert(offset, bass)
 
@@ -1158,6 +1183,38 @@ class MusicEngine:
             )
 
         return output
+
+    @staticmethod
+    def makeAndInsertNote(
+        pitchName: str,
+        below: m21.note.Note | None = None,
+        above: m21.note.Note | None = None,
+        extraOctaves: int = 0,
+        replacedNote: m21.note.Note | m21.note.Rest | None = None,
+        voice: m21.stream.Voice | None = None,
+        offset: OffsetQL | None = None,
+    ) -> m21.note.Note:
+        if voice is None or offset is None:
+            raise MusicEngineException('makeAndInsertNote requires voice and offset')
+
+        # remove the note it replaces from voice first
+        if replacedNote is not None:
+            if replacedNote.getOffsetInHierarchy(voice) != offset:
+                raise MusicEngineException('replaced note/rest must be at offset in voice')
+            voice.remove(replacedNote)
+
+        # make the new note
+        newNote: m21.note.Note = MusicEngine.makeNote(
+            pitchName,
+            above=above,
+            below=below,
+            extraOctaves=extraOctaves
+        )
+
+        # insert the new note in voice
+        voice.insert(offset, newNote)
+
+        return newNote
 
     @staticmethod
     def appendShoppedChord(
