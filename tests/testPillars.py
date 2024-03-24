@@ -35,7 +35,7 @@ print(f'leadsheet input file: {inPath}')
 outPath: Path = Path(tempfile.gettempdir()) / (inPath.stem + '_ShoppedPillarsLower.musicxml')
 print(f'shopped pillars (lower) output file: {outPath}')
 
-leadSheetScore: m21.stream.Score = m21.converter.parseFile(inPath)
+leadSheetScore: m21.stream.Score = m21.converter.parseFile(inPath, forceSource=True)
 shoppedPillarsLowerVoicesScore: m21.stream.Score = (
     testShopPillars(leadSheetScore, ArrangementType.LowerVoices)
 )
@@ -49,4 +49,5 @@ shoppedPillarsUpperVoicesScore: m21.stream.Score = (
 )
 shoppedPillarsUpperVoicesScore.write(fmt='musicxml', fp=outPath, makeNotation=False)
 
+print('all done.')
 
