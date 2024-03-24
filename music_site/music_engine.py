@@ -465,7 +465,7 @@ class MusicEngine:
         # Now pick a key that will work for lead voice range, and transpose.
         melodyInfo: VocalRangeInfo = VocalRangeInfo(melody)
         semitones: int = (
-            melodyInfo.getTranspositionSemitones(PartName.Lead, ArrangementType.LowerVoices)
+            melodyInfo.getTranspositionSemitones(PartName.Lead, arrType)
         )
 
         # Transpose the whole leadSheet score by that number of semitones
@@ -590,16 +590,16 @@ class MusicEngine:
             # create two voices in each measure:
             # (tenor/lead in tlMeas, and bari/bass in bbMeas)
             tenor = m21.stream.Voice()
-            tenor.id = 'Tenor'
+            tenor.id = PartName.Tenor
             lead = m21.stream.Voice()
-            lead.id = 'Lead'
+            lead.id = PartName.Lead
             tlMeas.insert(0, tenor)
             tlMeas.insert(0, lead)
 
             bari = m21.stream.Voice()
-            bari.id = 'Bari'
+            bari.id = PartName.Bari
             bass = m21.stream.Voice()
-            bass.id = 'Bass'
+            bass.id = PartName.Bass
             bbMeas.insert(0, bari)
             bbMeas.insert(0, bass)
 
@@ -745,9 +745,23 @@ class MusicEngine:
                         'Should not reach here: partName not in Bass, Tenor, Bari'
                     )
 
-                # Specify stem directions explicitly
-                if isinstance(thisChord[partName], m21.note.Note):
-                    thisChord[partName].stemDirection = MusicEngine.STEM_DIRECTION[partName]
+            # set accidental visibility properly
+            harmonyVoice: m21.stream.Voice = currMeasure[partName]
+            harmonyNotes: list[m21.note.Note] = list(harmonyVoice[m21.note.Note])
+            tiedPitchNames: set[str] = set()
+            if harmonyNotes:
+                if harmonyNotes[-1].tie is not None:
+                    tiedPitchNames.add(harmonyNotes[-1].pitch.nameWithOctave)
+
+            harmonyVoice.makeAccidentals(
+                useKeySignature=True,
+                searchKeySignatureByContext=True,  # current keysig might not be in this voice
+                cautionaryPitchClass=True,   # don't hide accidental for different octave
+                overrideStatus=True,         # because we did a deepcopy of lead note which
+                                             # already had displayStatus set
+                tiePitchSet=tiedPitchNames,  # tied across barline needs no repeated accidental
+                inPlace=True
+            )
 
     @staticmethod
     def getChordFourParts(
@@ -938,35 +952,36 @@ class MusicEngine:
             # Basic triad, you should double the root since there is no seventh
             if lead.pitch.name == root:
                 # Lead is on root, take doubled root an octave below
-                bass = MusicEngine.makeNote(root, below=lead)
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     # octave below is too low, try fifth below
-                    bass = MusicEngine.makeNote(fifth, below=lead)
+                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     # still too low, just sing the same note (root) as the lead
                     bass = deepcopy(lead)
 
             elif lead.pitch.name == third:
                 # Lead is on third, take root a 10th below
-                bass = MusicEngine.makeNote(root, below=lead, extraOctaves=1)
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
                 if partRange.isTooLow(bass.pitch):
                     # Take fifth (below the lead's third)
-                    bass = MusicEngine.makeNote(fifth, below=lead)
+                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
                         # Fine, take the root just below the lead's third
-                        bass = MusicEngine.makeNote(third, below=lead)
+                        bass = MusicEngine.makeNote(third, copyFrom=lead, below=lead)
 
             elif lead.pitch.name == fifth:
                 # Lead is on fifth, take root below
-                bass = MusicEngine.makeNote(root, below=lead)
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     # Ugh. Lead must be really low. Push the lead up to
                     # the next higher root, and take the lead note yourself.
                     bass = deepcopy(lead)  # fifth, assume it's in bass range
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         root,
-                        above=bass,
+                        copyFrom=lead,
                         replacedNote=lead,
+                        above=bass,
                         voice=measure[PartName.Lead],
                         offset=offset,
                     )
@@ -981,30 +996,31 @@ class MusicEngine:
             # No doubling.
             if lead.pitch.name == root:
                 # put bass on fifth below lead, or raise lead to fifth and take lead's root)
-                bass = MusicEngine.makeNote(fifth, below=lead)
+                bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     bass = deepcopy(lead)  # assume it's in bass range
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         fifth,
-                        above=bass,
+                        copyFrom=lead,
                         replacedNote=lead,
+                        above=bass,
                         voice=measure[PartName.Lead],
-                        offset=offset
+                        offset=offset,
                     )
 
             elif lead.pitch.name == third:
-                bass = MusicEngine.makeNote(fifth, below=lead)
+                bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
-                    bass = MusicEngine.makeNote(root, below=lead)
+                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
             elif lead.pitch.name == fifth:
-                bass = MusicEngine.makeNote(root, below=lead)  # assume in bass range
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)  # assume in bass range
 
             elif lead.pitch.name == seventh:
                 # put bass on fifth, a 3rd below the lead (or a 10th below if that's too high)
-                bass = MusicEngine.makeNote(fifth, below=lead)
+                bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooHigh(bass.pitch):
-                    bass = MusicEngine.makeNote(fifth, below=lead, extraOctaves=1)
+                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead, extraOctaves=1)
 
             else:
                 # Should never happen, because we wouldn't call this routine if
@@ -1012,6 +1028,9 @@ class MusicEngine:
                 raise MusicEngineException(
                     'harmonizePillarChordBass: lead note not in pillar chord'
                 )
+
+        # Specify stem directions explicitly
+        bass.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Bass]
 
         # Put the bass note in the bass voice
         bassVoice: m21.stream.Voice = measure[PartName.Bass]
@@ -1068,25 +1087,28 @@ class MusicEngine:
         )
 
         for p in orderedPitchNames:
-            tenor = MusicEngine.makeNote(p, above=lead)
+            tenor = MusicEngine.makeNote(p, copyFrom=lead, above=lead)
             if partRange.isInRange(tenor.pitch):
                 break
 
         if tenor is not None and partRange.isTooLow(tenor.pitch):
             # try again, an extra octave up
             for p in orderedPitchNames:
-                tenor = MusicEngine.makeNote(p, above=lead, extraOctaves=1)
+                tenor = MusicEngine.makeNote(p, copyFrom=lead, above=lead, extraOctaves=1)
                 if partRange.isInRange(tenor.pitch):
                     break
 
         if tenor is None or partRange.isTooHigh(tenor.pitch):
             for p in reversed(orderedPitchNames):
-                tenor = MusicEngine.makeNote(p, below=lead)
+                tenor = MusicEngine.makeNote(p, copyFrom=lead, below=lead)
                 if partRange.isInRange(tenor.pitch):
                     break
 
         if tenor is None or partRange.isOutOfRange(tenor.pitch):
             raise MusicEngineException('failed to find a tenor note for a pillar chord')
+
+        # Specify stem directions explicitly
+        tenor.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Tenor]
 
         tenorVoice: m21.stream.Voice = measure[PartName.Tenor]
         tenorVoice.insert(offset, tenor)
@@ -1132,12 +1154,15 @@ class MusicEngine:
 
         # bari gets whatever is left over (we can improve voice leading by trading notes,
         # obviously, but for now this is it).
-        bari: m21.note.Note = MusicEngine.makeNote(availablePitchNames[0], below=tenor)
+        bari: m21.note.Note = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor)
         if partRange.isTooHigh(bari.pitch):
-            bari = MusicEngine.makeNote(availablePitchNames[0], below=tenor, extraOctaves=1)
+            bari = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor, extraOctaves=1)
 
         if partRange.isOutOfRange(bari.pitch):
             raise MusicEngineException('failed to find a bari note for a pillar chord')
+
+        # Specify stem directions explicitly
+        bari.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Bari]
 
         bariVoice: m21.stream.Voice = measure[PartName.Bari]
         bariVoice.insert(offset, bari)
@@ -1297,9 +1322,10 @@ class MusicEngine:
     @staticmethod
     def makeNote(
         pitchName: str,
+        copyFrom: m21.note.Note,
         below: m21.note.Note | None = None,
         above: m21.note.Note | None = None,
-        extraOctaves: int = 0
+        extraOctaves: int = 0,
     ) -> m21.note.Note:
         if below is not None and above is not None:
             raise MusicEngineException(
@@ -1314,13 +1340,20 @@ class MusicEngine:
         output: m21.note.Note
         octave: int | None
         if below is not None:
-            output = m21.note.Note(pitchName, octave=below.pitch.octave)  # type: ignore
+            output = deepcopy(copyFrom)
+            output.lyrics = []  # don't copy the lyrics!
+
+            output.pitch = m21.pitch.Pitch(name=pitchName, octave=below.pitch.octave)
             if output.pitch >= below.pitch:
                 output.pitch.octave -= 1  # type: ignore
             if extraOctaves:
                 output.pitch.octave -= extraOctaves  # type: ignore
+
         elif above is not None:
-            output = m21.note.Note(pitchName, octave=above.pitch.octave)  # type: ignore
+            output = deepcopy(copyFrom)
+            output.lyrics = []  # don't copy the lyrics!
+
+            output.pitch = m21.pitch.Pitch(name=pitchName, octave=above.pitch.octave)
             if output.pitch <= above.pitch:
                 output.pitch.octave += 1  # type: ignore
             if extraOctaves:
@@ -1335,10 +1368,11 @@ class MusicEngine:
     @staticmethod
     def makeAndInsertNote(
         pitchName: str,
+        copyFrom: m21.note.Note,
+        replacedNote: m21.note.Note | m21.note.Rest | None = None,
         below: m21.note.Note | None = None,
         above: m21.note.Note | None = None,
         extraOctaves: int = 0,
-        replacedNote: m21.note.Note | m21.note.Rest | None = None,
         voice: m21.stream.Voice | None = None,
         offset: OffsetQL | None = None,
     ) -> m21.note.Note:
@@ -1354,6 +1388,7 @@ class MusicEngine:
         # make the new note
         newNote: m21.note.Note = MusicEngine.makeNote(
             pitchName,
+            copyFrom=copyFrom,
             above=above,
             below=below,
             extraOctaves=extraOctaves
