@@ -590,16 +590,16 @@ class MusicEngine:
             # create two voices in each measure:
             # (tenor/lead in tlMeas, and bari/bass in bbMeas)
             tenor = m21.stream.Voice()
-            tenor.id = PartName.Tenor
+            tenor.id = 'tenor'
             lead = m21.stream.Voice()
-            lead.id = PartName.Lead
+            lead.id = 'lead'
             tlMeas.insert(0, tenor)
             tlMeas.insert(0, lead)
 
             bari = m21.stream.Voice()
-            bari.id = PartName.Bari
+            bari.id = 'bari'
             bass = m21.stream.Voice()
-            bass.id = PartName.Bass
+            bass.id = 'bass'
             bbMeas.insert(0, bari)
             bbMeas.insert(0, bass)
 
@@ -609,9 +609,18 @@ class MusicEngine:
             # Walk all the ChordSymbols in cMeas and put them in tlMeas (so
             # they will display above the top staff).
             for cs in cMeas.recurse().getElementsByClass(m21.harmony.ChordSymbol):
+                if cs.chordKind == 'augmented-ninth':
+                    # Finale and music21 don't know what 'augmented-ninth' is.
+                    # The example I found looks like it should be augmented-dominant-night
+                    # (i.e. with dominant 7th), not augmented-major-ninth (i.e. with
+                    # major 7th).  That is to say, 1-3-#5-b7-9, not 1-3-#5-7-9.
+                    # We update it in place before deepcopying, so it is updated
+                    # everywhere.
+                    cs.chordKind = 'augmented-dominant-ninth'
+                    cs._updatePitches()
                 measureStuff.append(cs)
                 offset = cs.getOffsetInHierarchy(cMeas)
-                tlMeas.insert(offset, cs)
+                tlMeas.insert(offset, deepcopy(cs))
 
             # Recurse all elements of mMeas, skipping any measureStuff
             # and any clefs and any LayoutBase (we don't care how the
@@ -664,7 +673,16 @@ class MusicEngine:
 
                 if isinstance(el, m21.note.Rest):
                     # a rest in the lead is a rest in the harmony part
-                    currMeasure[partName].insert(offset, deepcopy(el))
+                    # Hide the tenor rest and bari rest (we only want
+                    # to see one rest in each staff).  Also set all rest
+                    # positions to center of staff, because we don't want
+                    # it positioned just for the one voice.
+                    el.stepShift = 2  # I wish setting to 0 did something...
+                    rest: m21.note.Rest = deepcopy(el)
+                    if partName == PartName.Tenor or partName == PartName.Bari:
+                        rest.style.hideObjectOnPrint = True
+                        rest.stepShift = 0
+                    currMeasure[partName].insert(offset, rest)
                     continue
 
                 if not isinstance(el, m21.note.Note):
@@ -681,14 +699,23 @@ class MusicEngine:
                     # Must be a melody pickup before the first chord, or a place
                     # in the music where there it is specifically notated that
                     # there is no chord at all.
-                    # Put (visible) rests in the other three parts.
-                    rest: m21.note.Rest = m21.note.Rest()
-                    rest.quarterLength = leadNote.quarterLength
-                    currMeasure[partName].insert(offset, rest)
+                    # Put (visible) rests in the other three parts. Hide Bari
+                    # (but not Tenor this time) and set rest position on the
+                    # visible rests.
+                    noChordRest: m21.note.Rest = m21.note.Rest()
+                    noChordRest.quarterLength = leadNote.quarterLength
+                    if partName == PartName.Bari:
+                        noChordRest.style.hideObjectOnPrint = True
+                    else:
+                        noChordRest.stepShift = 2  # I wish setting to 0 did something...
+
+                    currMeasure[partName].insert(offset, noChordRest)
                     continue
 
-                if len(chordSym.pitches) < 3 or (
-                        leadNote.pitch.name not in MusicEngine.getChordFourParts(chordSym)):
+                if len(chordSym.pitches) < 3:
+                    raise MusicEngineException(f'bad chord found {chordSym}')
+
+                if leadNote.pitch.name not in MusicEngine.getChordFourParts(chordSym):
                     # lead is not on a pillar chord note, fill in bass/tenor/bari with
                     # spaces (invisible rests).
                     space: m21.note.Rest = m21.note.Rest()
