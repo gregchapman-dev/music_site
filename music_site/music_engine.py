@@ -750,10 +750,10 @@ class MusicEngine:
     def getChordFourParts(
         chordSym: m21.harmony.ChordSymbol,
         leadPitchName: str | None = None
-    ) -> tuple[str]:
+    ) -> tuple[str, str, str, str]:
         # same as getChordPitchNames, but doubles the root if
         # necessary to make four notes.
-        nameTuple: tuple[str, str, str, str | None] = (
+        nameTuple: tuple[str | None, str | None, str | None, str | None] = (
             MusicEngine.getChordPitchNames(chordSym, leadPitchName)
         )
         names: list[str] = []
@@ -763,18 +763,20 @@ class MusicEngine:
 
         if len(names) == 3:
             # double the root (put it in the list twice)
-            names.append(nameTuple[0])
-        return tuple(names)
+            names.append(names[0])
+        if len(names) != 4:
+            raise MusicEngineException('error parsing chordSym')
+        return names[0], names[1], names[2], names[3]
 
     @staticmethod
     def getChordPitchNames(
         chordSym: m21.harmony.ChordSymbol,
         leadPitchName: str | None = None
-    ) -> tuple[str| None, str | None, str | None, str | None]:
+    ) -> tuple[str | None, str | None, str | None, str | None]:
         # ALWAYS must return in order from root upwards (if root is dropped,
         # from lowest step upwards).  Does NOT double root for triads, instead
         # returns None for the fourth note.
-        step: list[str | None] = [None * 14]
+        step: list[str | None] = [None] * 14
 
         def onlyset(*numsThatAreSet) -> bool:
             for i in (1, 3, 5, 7, 9, 11, 13):
@@ -792,10 +794,11 @@ class MusicEngine:
         # e.g. for Dsus4, we return 1, 11 (4), 5, 1, and for D11 we return 5, 7, 9, 11.
 
         # Note also that step[0] is meaningless, and is never used.
-        step: list[str | None] = [None * 14]
 
         if chordSym.root():
             step[1] = chordSym.root().name
+        else:
+            raise MusicEngineException('chordSym has no root!')
 
         if chordSym.third:
             step[3] = chordSym.third.name
@@ -806,21 +809,25 @@ class MusicEngine:
         if chordSym.seventh:
             step[7] = chordSym.seventh.name
 
+        pitch: m21.pitch.Pitch | None
         try:
-            if chordSym.getChordStep(9):
-                step[9] = chordSym.getChordStep(9).name
+            pitch = chordSym.getChordStep(9)
+            if pitch is not None:
+                step[9] = pitch.name
         except m21.chord.ChordException:
             pass
 
         try:
-            if chordSym.getChordStep(11):
-                step[11] = chordSym.getChordStep(11).name
+            pitch = chordSym.getChordStep(11)
+            if pitch is not None:
+                step[11] = pitch.name
         except m21.chord.ChordException:
             pass
 
         try:
-            if chordSym.getChordStep(13):
-                step[13] = chordSym.getChordStep(13).name
+            pitch = chordSym.getChordStep(13)
+            if pitch is not None:
+                step[13] = pitch.name
         except m21.chord.ChordException:
             pass
 
@@ -911,11 +918,15 @@ class MusicEngine:
 
         partRange: VocalRange = PART_RANGES[arrType][PartName.Bass]
 
-        root: str
-        third: str
-        fifth: str
+        root: str | None
+        third: str | None
+        fifth: str | None
         seventh: str | None
         root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
+        if t.TYPE_CHECKING:
+            assert isinstance(root, str)
+            assert isinstance(third, str)
+            assert isinstance(fifth, str)
 
         lead: m21.note.Note = thisChord[PartName.Lead]
         bass: m21.note.Note
@@ -964,14 +975,7 @@ class MusicEngine:
                     'harmonizePillarChordBass: lead note not in pillar chord'
                 )
         else:
-            # There are at least four parts.  For now assume they are root, third, fifth, seventh.
-            #
-            # In future, if it's an eleventh chord (for example) we should pick which four notes
-            # we want to sing, and maybe figure out that they make a different four note chord,
-            # and we might then rename the notes root, third, fifth, and seventh.  For example, a
-            # C11 chord (generally consisting of 5 chord tones: root, fifth, seventh, ninth, 11th)
-            # is C, G, Bb, D, F, and we might choose to drop the root and use G, Bb, D, F,
-            # calling them root, third, fifth, and seventh of a Gm7 chord.
+            # No doubling.
             if lead.pitch.name == root:
                 # put bass on fifth below lead, or raise lead to fifth and take lead's root)
                 bass = MusicEngine.makeNote(fifth, below=lead)
@@ -1035,11 +1039,15 @@ class MusicEngine:
 
         partRange: VocalRange = PART_RANGES[arrType][PartName.Tenor]
 
-        root: str
-        third: str
-        fifth: str
-        seventh: str | None
-        root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
+#         root: str | None
+#         third: str | None
+#         fifth: str | None
+#         seventh: str | None
+#         root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
+#         if t.TYPE_CHECKING:
+#             assert isinstance(root, str)
+#             assert isinstance(third, str)
+#             assert isinstance(fifth, str)
         availablePitchNames: list[str] = thisChord.getAvailablePitchNames(pillarChordSym)
 
         lead: m21.note.Note = thisChord[PartName.Lead]
@@ -1105,11 +1113,15 @@ class MusicEngine:
 
         partRange: VocalRange = PART_RANGES[arrType][PartName.Bari]
 
-        root: str
-        third: str
-        fifth: str
+        root: str | None
+        third: str | None
+        fifth: str | None
         seventh: str | None
-        root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
+#         root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
+#         if t.TYPE_CHECKING:
+#             assert isinstance(root, str)
+#             assert isinstance(third, str)
+#             assert isinstance(fifth, str)
         availablePitchNames: list[str] = thisChord.getAvailablePitchNames(pillarChordSym)
 
         lead: m21.note.Note = thisChord[PartName.Lead]
