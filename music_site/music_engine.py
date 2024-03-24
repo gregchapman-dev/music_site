@@ -89,7 +89,10 @@ class FourNoteChord(Sequence):
         availablePitchNames: list[str] = list(MusicEngine.getChordFourParts(chordSym))
         for n in self:
             if isinstance(n, m21.note.Note):
-                availablePitchNames.remove(n.pitch.name)
+                if n.pitch.name in availablePitchNames:
+                    availablePitchNames.remove(n.pitch.name)
+                else:
+                    print('n.pitch.name not in fourParts, why did we use it then?')
         return availablePitchNames
 
 

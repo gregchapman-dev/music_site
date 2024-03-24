@@ -41,8 +41,8 @@ shoppedPillarsLowerVoicesScore: m21.stream.Score = (
 )
 shoppedPillarsLowerVoicesScore.write(fmt='musicxml', fp=outPath, makeNotation=False)
 
-outPath: Path = Path(tempfile.gettempdir()) / (inPath.stem + '_ShoppedPillarsLower.musicxml')
-print(f'shopped pillars (lower) output file: {outPath}')
+outPath: Path = Path(tempfile.gettempdir()) / (inPath.stem + '_ShoppedPillarsUpper.musicxml')
+print(f'shopped pillars (upper) output file: {outPath}')
 
 shoppedPillarsUpperVoicesScore: m21.stream.Score = (
     testShopPillars(leadSheetScore, ArrangementType.UpperVoices)
