@@ -39,7 +39,89 @@ class PartName (MyStrEnum):
     Bass = 'bass'
 
 
-class FourNoteChord(Sequence):
+class Chord(Sequence):
+    # The group of pitches from a named chord, ordered/keyed by role in the chord.
+    _ROLES: dict[str, int] = {
+        'root': 1,
+        'second': 2,
+        'third': 3,
+        'fourth': 4,
+        'fifth': 5,
+        'sixth': 6,
+        'seventh': 7,
+        'ninth': 9,
+        'eleventh': 11,
+        'thirteenth': 13
+    }
+
+    def __init__(
+        self,
+        cs: m21.harmony.ChordSymbol,
+    ):
+        self.sym: m21.harmony.ChordSymbol = cs
+        self.pitches: tuple[m21.pitch.Pitch, ...] = cs.pitches
+
+        # tuple[role=1..13, pitch]
+        self.roleToPitchNames: dict[int, str] = {}
+
+        if isinstance(self.sym, m21.harmony.NoChord):
+            return
+
+        # cs.pitches have octaves, and are ordered diatonically, so they will
+        # help us figure out the difference between role=4 and role=11 (cs.getChordStep
+        # won't help us at all).
+        pitchNames: list[str] = [p.name for p in cs.pitches]
+        pitchesForRole: list[m21.pitch.Pitch | None] = [None] * 13
+        for i in range(1, 8):
+            try:
+                pitchesForRole[i] = cs.getChordStep(i)
+            except m21.chord.ChordException:
+                pass
+
+        # loop over pitches and pitchesForRole, moving pitchesForRole elements to match pitches
+        role: int = 1
+        pitchIdx: int = 0
+        while pitchIdx < len(pitchNames):
+            pitchName = pitchNames[pitchIdx]
+            pitchForRole = pitchesForRole[role]
+            while pitchForRole is None:
+                role += 1
+                pitchForRole = pitchesForRole[role]
+            if pitchForRole.name == pitchName:
+                role += 1
+                pitchIdx += 1
+                continue
+
+            # pitchForRole.name != pitchName, so we assume that we need to
+            # move this pitchForRole entry up to a higher role (e.g. 4 -> 11)
+            higherRole: int = role + 7
+            if higherRole >= len(pitchesForRole):
+                # shouldn't happen
+                raise MusicEngineException('cannot figure out pitch roles in chord')
+            pitchesForRole[higherRole] = pitchesForRole[role]
+            pitchesForRole[role] = None
+            role += 1  # don't increment pitchIdx, we need to process it again with next role
+
+        for role, pitchForRole in enumerate(pitchesForRole):
+            if pitchForRole is not None:
+                self.roleToPitchNames[role] = pitchForRole.name
+
+    def __len__(self) -> int:
+        return len(self.roleToPitchNames)
+
+    def __getitem__(self, idx: int | str | slice) -> t.Any:  # -> str | None (pitchName)
+        if isinstance(idx, str):
+            if idx not in self._ROLES:
+                keysStr = ', '.join(self._ROLES.keys())
+                raise IndexError(f'Chord role must be int (1-13) or str ({keysStr}).')
+            idx = self._ROLES[idx]
+
+        if not isinstance(idx, int) or idx < 1 or idx > 13:
+            raise IndexError(f'Chord role must be int (1-13) or str ({keysStr}).')
+
+        return self.roleToPitchNames.get(idx, None)
+
+class FourNotes(Sequence):
     # intended to be read-only snapshot of a (possibly in-progress) chord
     def __init__(
         self,
@@ -85,15 +167,32 @@ class FourNoteChord(Sequence):
         # we don't support slicing (or out-of-range idx)
         raise IndexError(idx)
 
-    def getAvailablePitchNames(self, chordSym: m21.harmony.ChordSymbol) -> list[str]:
-        availablePitchNames: list[str] = list(MusicEngine.getChordFourParts(chordSym))
+    def getAvailablePitchNames(self, chord: Chord) -> list[str]:
+        availableRoleToPitchNames: dict[int, str] = (
+            MusicEngine.getChordVocalParts(chord, self[PartName.Lead].name)
+        )
+        doubleTheRoot: bool = False
+        if len(availableRoleToPitchNames) == 3:
+            doubleTheRoot = True
+
         for n in self:
             if isinstance(n, m21.note.Note):
-                if n.pitch.name in availablePitchNames:
-                    availablePitchNames.remove(n.pitch.name)
+                if n.pitch.name in availableRoleToPitchNames.values():
+                    if doubleTheRoot and n.pitch.name == availableRoleToPitchNames.get(1, None):
+                        # don't remove the root until you see the root a second time
+                        doubleTheRoot = False
+                        continue
+
+                    removeRole: int = 0  # there is no role 0
+                    for k, v in availableRoleToPitchNames.items():
+                        if v == n.pitch.name:
+                            removeRole = k
+                    if removeRole != 0:
+                        availableRoleToPitchNames.pop(removeRole, None)
                 else:
                     print('n.pitch.name not in fourParts, why did we use it then?')
-        return availablePitchNames
+
+        return list(availableRoleToPitchNames.values())
 
 
 class FourVoices(Sequence):
@@ -668,7 +767,7 @@ class MusicEngine:
                     continue
                 if isinstance(el, m21.chord.Chord):
                     raise MusicEngineException(
-                        'Chord (not ChordSymbol) found in leadsheet melody'
+                        'm21.chord.Chord (not ChordSymbol) found in leadsheet melody'
                     )
 
                 if isinstance(el, m21.note.Rest):
@@ -691,11 +790,11 @@ class MusicEngine:
                 # it's a Note
                 leadNote: m21.note.Note = el
                 ql: OffsetQL = leadNote.quarterLength
-                chordSym: m21.harmony.ChordSymbol | None = (
-                    MusicEngine.findChordSymbolOverlappingOffset(chordMeas, offset)
+                chord: Chord | None = (
+                    MusicEngine.findChordOverlappingOffset(chordMeas, offset)
                 )
 
-                if chordSym is None or isinstance(chordSym, m21.harmony.NoChord):
+                if chord is None or isinstance(chord.sym, m21.harmony.NoChord):
                     # Must be a melody pickup before the first chord, or a place
                     # in the music where there it is specifically notated that
                     # there is no chord at all.
@@ -712,10 +811,8 @@ class MusicEngine:
                     currMeasure[partName].insert(offset, noChordRest)
                     continue
 
-                if len(chordSym.pitches) < 3:
-                    raise MusicEngineException(f'bad chord found {chordSym}')
-
-                if leadNote.pitch.name not in MusicEngine.getChordFourParts(chordSym):
+                if leadNote.pitch.name not in MusicEngine.getChordVocalParts(
+                        chord, leadNote.pitch.name).values():
                     # lead is not on a pillar chord note, fill in bass/tenor/bari with
                     # spaces (invisible rests).
                     space: m21.note.Rest = m21.note.Rest()
@@ -731,12 +828,12 @@ class MusicEngine:
                 #   partName: PartName, which part we are harmonizing (might adjust others)
                 #   currMeasure: FourVoices, where we insert(and adjust) the note(s))
                 #   offset: OffsetQL, offset in currMeasure[x] where we are working
-                #   thisChord: FourNoteChord (read-only), for ease of looking up and down
-                #   prevChord: FourNoteChord (read-only), for ease of looking back
-                thisChord: FourNoteChord = (
+                #   thisFourNotes: FourNotes (read-only), for ease of looking up and down
+                #   prevFourNotes: FourNotes (read-only), for ease of looking back
+                thisFourNotes: FourNotes = (
                     MusicEngine.getChordAtOffset(currMeasure, offset)
                 )
-                prevChord: FourNoteChord = (
+                prevFourNotes: FourNotes = (
                     MusicEngine.getChordBeforeOffset(currMeasure, prevMeasure, offset)
                 )
 
@@ -745,27 +842,27 @@ class MusicEngine:
                         arrType,
                         currMeasure,
                         offset,
-                        chordSym,
-                        thisChord,
-                        prevChord
+                        chord,
+                        thisFourNotes,
+                        prevFourNotes
                     )
                 elif partName == PartName.Tenor:
                     MusicEngine.harmonizePillarChordTenor(
                         arrType,
                         currMeasure,
                         offset,
-                        chordSym,
-                        thisChord,
-                        prevChord
+                        chord,
+                        thisFourNotes,
+                        prevFourNotes
                     )
                 elif partName == PartName.Bari:
                     MusicEngine.harmonizePillarChordBari(
                         arrType,
                         currMeasure,
                         offset,
-                        chordSym,
-                        thisChord,
-                        prevChord
+                        chord,
+                        thisFourNotes,
+                        prevFourNotes
                     )
                 else:
                     raise MusicEngineException(
@@ -791,157 +888,107 @@ class MusicEngine:
             )
 
     @staticmethod
-    def getChordFourParts(
-        chordSym: m21.harmony.ChordSymbol,
-        leadPitchName: str | None = None
-    ) -> tuple[str, str, str, str]:
-        # same as getChordPitchNames, but doubles the root if
-        # necessary to make four notes.
-        nameTuple: tuple[str | None, str | None, str | None, str | None] = (
-            MusicEngine.getChordPitchNames(chordSym, leadPitchName)
+    def getChordVocalParts(
+        chord: Chord,
+        leadPitchName: str
+    ) -> dict[int, str]:
+        # This is the place where we decide which of the chord pitches should end
+        # up being sung. If the chord is not one we understand, return an empty dict,
+        # so that the client will bail on trying to harmonize this chord (for starters,
+        # because the lead note is obviously not in it).
+        # We return four parts, unless the root is to be doubled, in which case we
+        # return three parts.
+        output: dict[int, str] = {}
+        allOfThem: dict[int, str] = (
+            MusicEngine.getChordPitchNames(chord)
         )
-        names: list[str] = []
-        for name in nameTuple:
-            if name is not None:
-                names.append(name)
 
-        if len(names) == 3:
-            # double the root (put it in the list twice)
-            names.append(names[0])
-        if len(names) != 4:
-            raise MusicEngineException('error parsing chordSym')
-        return names[0], names[1], names[2], names[3]
+        # Catch the weird cases first (we have to pick which note(s) to drop)
+        if tuple(allOfThem.keys()) == (1, 3, 5, 7, 9, 11, 13):
+            # 13th chord of some sort. For now, just return 7/9/11/13
+            # unless the lead is on 1, 3, or 5, in which case return
+            # lead/9/11/13 (this is a guess; lead/7/11/13 et al are
+            # just as likely correct).
+            if leadPitchName == allOfThem[1]:
+                output[1] = allOfThem[1]
+            elif leadPitchName == allOfThem[3]:
+                output[3] = allOfThem[3]
+            elif leadPitchName == allOfThem[5]:
+                output[5] = allOfThem[5]
+            else:
+                output[7] = allOfThem[7]
+
+            output[9] = allOfThem[9]
+            output[11] = allOfThem[11]
+            output[13] = allOfThem[13]
+            return output
+
+        if tuple(allOfThem.keys()) == (1, 3, 5, 7, 9, 11):
+            # 11th chord of some sort.
+            # Vol 2 Figure 14.18 likes 5/7/9/11.
+            # (but if lead is on 1 or 3, we could return lead/7/9/11 someday)
+            output[5] = allOfThem[5]
+            output[7] = allOfThem[7]
+            output[9] = allOfThem[9]
+            output[11] = allOfThem[11]
+            return output
+
+        if tuple(allOfThem.keys()) == (1, 3, 5, 7, 9):
+            # 9th chord
+            # Vol 2 Figure 14.30 likes 3, 5, 7, 9.
+            # (but if lead is on 1, we could return lead/5/7/9 someday)
+            output[3] = allOfThem[3]
+            output[5] = allOfThem[5]
+            output[7] = allOfThem[7]
+            output[9] = allOfThem[9]
+
+        if tuple(allOfThem.keys()) == (1, 3, 5, 6):
+            # 6th chord.
+            # We like to drop the fifth (and double the root), but if the fifth is
+            # in the lead, we keep the fifth instead. Note that this routine is not
+            # responsible for doubling the root, so the only choice here is whether
+            # or not to include the fifth.
+            if leadPitchName == allOfThem[5]:
+                output[5] = allOfThem[5]
+
+            output[1] = allOfThem[1]
+            output[3] = allOfThem[3]
+            output[6] = allOfThem[6]
+            return output
+
+        if tuple(allOfThem.keys()) == (1, 3, 5, 7):
+            # 7th Chord of some sort.
+            output[1] = allOfThem[1]
+            output[3] = allOfThem[3]
+            output[5] = allOfThem[5]
+            output[7] = allOfThem[7]
+            return output
+
+        if tuple(allOfThem.keys()) == (1, 3, 5):
+            # Triad of some sort.
+            output[1] = allOfThem[1]
+            output[3] = allOfThem[3]
+            output[5] = allOfThem[5]
+            return output
+
+        return output
 
     @staticmethod
     def getChordPitchNames(
-        chordSym: m21.harmony.ChordSymbol,
-        leadPitchName: str | None = None
-    ) -> tuple[str | None, str | None, str | None, str | None]:
-        # ALWAYS must return in order from root upwards (if root is dropped,
-        # from lowest step upwards).  Does NOT double root for triads, instead
-        # returns None for the fourth note.
-        step: list[str | None] = [None] * 14
-
-        def onlyset(*numsThatAreSet) -> bool:
-            for i in (1, 3, 5, 7, 9, 11, 13):
-                if i in numsThatAreSet and step[i] is None:
-                    # should be set, but isn't
-                    return False
-                if i not in numsThatAreSet and step[i] is not None:
-                    # should not be set, but is
-                    return False
-            return True
-
-        # 2, 4, 6 and 9, 11, 13 are the same pitch name, but we only set
-        # the higher one.  We differentiate Dsus2 from D9 by the presence of
-        # step 7.  Same with Dsus4 vs D11, and D6 from D13.
-        # e.g. for Dsus4, we return 1, 11 (4), 5, 1, and for D11 we return 5, 7, 9, 11.
-
-        # Note also that step[0] is meaningless, and is never used.
-
-        if chordSym.root():
-            step[1] = chordSym.root().name
-        else:
-            raise MusicEngineException('chordSym has no root!')
-
-        if chordSym.third:
-            step[3] = chordSym.third.name
-
-        if chordSym.fifth:
-            step[5] = chordSym.fifth.name
-
-        if chordSym.seventh:
-            step[7] = chordSym.seventh.name
-
-        pitch: m21.pitch.Pitch | None
-        try:
-            pitch = chordSym.getChordStep(9)
-            if pitch is not None:
-                step[9] = pitch.name
-        except m21.chord.ChordException:
-            pass
-
-        try:
-            pitch = chordSym.getChordStep(11)
-            if pitch is not None:
-                step[11] = pitch.name
-        except m21.chord.ChordException:
-            pass
-
-        try:
-            pitch = chordSym.getChordStep(13)
-            if pitch is not None:
-                step[13] = pitch.name
-        except m21.chord.ChordException:
-            pass
-
-        # Catch the weird cases first (we have to pick which note(s) to drop)
-
-        if onlyset(1, 3, 5, 7, 9, 11, 13):
-            # 13th chord.
-            # For now just return 7/9/11/13 unless 1/3/5 is in the lead,
-            # in which case return lead/9/11/13.
-            if leadPitchName == step[1]:
-                return step[1], step[9], step[11], step[13]
-            if leadPitchName == step[3]:
-                return step[3], step[9], step[11], step[13]
-            if leadPitchName == step[5]:
-                return step[5], step[9], step[11], step[13]
-            return step[7], step[9], step[11], step[13]
-
-        if onlyset(1, 3, 5, 7, 9, 11):
-            # 11th chord.
-            # Vol 2 Figure 14.18 likes 5/7/9/11.
-            # (unless lead is on 1/3, in which case return lead/7/9/11)
-            if leadPitchName == step[1]:
-                return step[1], step[7], step[9], step[11]
-            if leadPitchName == step[3]:
-                return step[3], step[7], step[9], step[11]
-            return step[5], step[7], step[9], step[11]
-
-        if onlyset(1, 3, 5, 7, 9):
-            # 9th chord
-            # Vol 2 Figure 14.30 likes 3, 5, 7, 9.
-            # (unless lead is on 1, in which case return lead/5/7/9)
-            if leadPitchName == step[1]:
-                return step[1], step[5], step[7], step[9]
-            return step[3], step[5], step[7], step[9]
-
-        if onlyset(1, 3, 5, 13):
-            # 6th chord.
-            # We like to drop the fifth (and double the root), but if the fifth is
-            # in the lead, we keep the fifth instead. Note that this routine does
-            # not explicitly double the root.
-            if leadPitchName == step[5]:
-                return step[1], step[3], step[5], step[13]
-            return step[1], step[3], step[13], None
-
-        if onlyset(1, 11, 5):
-            # sus4 chord.
-            return step[1], step[4], step[5], None
-
-        if onlyset(1, 9, 5):
-            # sus2 chord.
-            return step[1], step[2], step[5], None
-
-        if onlyset(1, 3, 5, 7):
-            # 7th Chord
-            return step[1], step[3], step[5], step[7]
-
-        if onlyset(1, 3, 5):
-            # Triad
-            return step[1], step[3], step[5], None
-
-        raise MusicEngineException(f'Did not understand ChordSymbol: {step}')
+        chord: Chord
+    ) -> dict[int, str]:
+        # returns all of 'em, even if there are lots of notes in the chord
+        output: dict[int, str] = copy(chord.roleToPitchNames)
+        return output
 
     @staticmethod
     def harmonizePillarChordBass(
         arrType: ArrangementType,
         measure: FourVoices,
         offset: OffsetQL,
-        pillarChordSym: m21.harmony.ChordSymbol,
-        thisChord: FourNoteChord,
-        prevChord: FourNoteChord
+        pillarChord: Chord,
+        thisFourNotes: FourNotes,
+        prevFourNotes: FourNotes
     ):
         # From "Arranging Barbershop: Volume 2" pp11-13
         #
@@ -951,41 +998,44 @@ class MusicEngine:
         #           melody is lower.  This will help the voicings to not become too
         #           spread.  Consider bass voice leading when the harmony is a seventh
         #           chord and the melody is not on the root or fifth.
-        #
 
         # Note that we harmonize the entire Bass part before starting on any other harmony part.
         # This means we do it by only looking at the chords and the Lead part, and we can't
         # adjust any other part.
 
-        if isinstance(pillarChordSym, m21.harmony.NoChord):
+        if isinstance(pillarChord.sym, m21.harmony.NoChord):
             raise MusicEngineException('harmonizePillarChordPart: NoChord is not a pillar chord')
 
         partRange: VocalRange = PART_RANGES[arrType][PartName.Bass]
 
-        root: str | None
-        third: str | None
-        fifth: str | None
-        seventh: str | None
-        root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
-        if t.TYPE_CHECKING:
-            assert isinstance(root, str)
-            assert isinstance(third, str)
-            assert isinstance(fifth, str)
+        lead: m21.note.Note = thisFourNotes[PartName.Lead]
+        bass: m21.note.Note | None = None
 
-        lead: m21.note.Note = thisChord[PartName.Lead]
-        bass: m21.note.Note
+        # chordRole (key) is int, where 1 means root of the chord, 3 means third of the chord, etc
+        chPitch: dict[int, str] = MusicEngine.getChordVocalParts(
+            pillarChord,
+            lead.pitch.name
+        )
 
-        if seventh is None:
-            # Basic triad, you should double the root since there is no seventh
+        roleList: list[int] = list(chPitch.keys())
+        roleList.sort()
+        roles: tuple[int, ...] = tuple(roleList)
+
+        if roles == (1, 3, 5):
+            # Triad: you can double the root
+            root: str = chPitch[1]
+            third: str = chPitch[3]
+            fifth: str = chPitch[5]
+
             if lead.pitch.name == root:
                 # Lead is on root, take doubled root an octave below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     # octave below is too low, try fifth below
                     bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
-                if partRange.isTooLow(bass.pitch):
-                    # still too low, just sing the same note (root) as the lead
-                    bass = deepcopy(lead)
+                    if partRange.isTooLow(bass.pitch):
+                        # still too low, just sing the same note (root) as the lead
+                        bass = deepcopy(lead)
 
             elif lead.pitch.name == third:
                 # Lead is on third, take root a 10th below
@@ -1001,7 +1051,7 @@ class MusicEngine:
                 # Lead is on fifth, take root below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
-                    # Ugh. Lead must be really low. Push the lead up to
+                    # Ugh. Lead must be really low. Push the lead up a 4th to
                     # the next higher root, and take the lead note yourself.
                     bass = deepcopy(lead)  # fifth, assume it's in bass range
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
@@ -1019,8 +1069,43 @@ class MusicEngine:
                 raise MusicEngineException(
                     'harmonizePillarChordBass: lead note not in pillar chord'
                 )
-        else:
-            # No doubling.
+
+        elif (roles == (1, 3, 5, 7)
+                or roles == (1, 3, 5, 6)
+                or roles == (3, 5, 7, 9)
+                or roles == (5, 7, 9, 11)
+                or roles == (7, 9, 11, 13)):
+            if roles == (1, 3, 5, 7):
+                # 7th chord: no doubling the root.
+                root = chPitch[1]
+                third = chPitch[3]
+                fifth = chPitch[5]
+                seventh: str = chPitch[7]
+            elif roles == (1, 3, 5, 6):
+                # 6th with fifth: treat it as a 7th chord rooted at 6
+                root = chPitch[6]
+                third = chPitch[1]
+                fifth = chPitch[3]
+                seventh = chPitch[5]
+            elif roles == (3, 5, 7, 9):
+                # 9th chord with no root: Treat it as a 7th chord rooted at 3
+                root = chPitch[3]
+                third = chPitch[5]
+                fifth = chPitch[7]
+                seventh = chPitch[9]
+            elif roles == (5, 7, 9, 11):
+                # 11th chord with no root/third: Treat it as a 7th chord rooted at 5
+                root = chPitch[5]
+                third = chPitch[7]
+                fifth = chPitch[9]
+                seventh = chPitch[11]
+            else:
+                # 13th chord with no root/third/fifth: Treat it as a 7th chord rooted at 7
+                root = chPitch[7]
+                third = chPitch[9]
+                fifth = chPitch[11]
+                seventh = chPitch[13]
+
             if lead.pitch.name == root:
                 # put bass on fifth below lead, or raise lead to fifth and take lead's root)
                 bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
@@ -1056,6 +1141,89 @@ class MusicEngine:
                     'harmonizePillarChordBass: lead note not in pillar chord'
                 )
 
+        elif roles == (1, 3, 6):
+            # 6th chord (without the fifth; double the root)
+            # For now, this is a copy of (1, 3, 5), with 6 taking 5's role.
+            # If we need to tweak it, we can.
+            root = chPitch[1]
+            third = chPitch[3]
+            sixth: str = chPitch[6]
+
+            if lead.pitch.name == root:
+                # Lead is on root, take doubled root an octave below
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    # octave below is too low, try sixth below
+                    bass = MusicEngine.makeNote(sixth, copyFrom=lead, below=lead)
+                    if partRange.isTooLow(bass.pitch):
+                        # still too low, just sing the same note (root) as the lead
+                        bass = deepcopy(lead)
+
+            elif lead.pitch.name == third:
+                # Lead is on third, take root a 10th below
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
+                if partRange.isTooLow(bass.pitch):
+                    # Take sixth (below the lead's third)
+                    bass = MusicEngine.makeNote(sixth, copyFrom=lead, below=lead)
+                    if partRange.isTooLow(bass.pitch):
+                        # Fine, take the root just below the lead's third
+                        bass = MusicEngine.makeNote(third, copyFrom=lead, below=lead)
+
+            elif lead.pitch.name == sixth:
+                # Lead is on sixth, take root below
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    # Ugh. Lead must be really low. Push the lead up a 4th to
+                    # the next higher root, and take the lead note yourself.
+                    bass = deepcopy(lead)  # sixth, assume it's in bass range
+                    lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
+                        root,
+                        copyFrom=lead,
+                        replacedNote=lead,
+                        above=bass,
+                        voice=measure[PartName.Lead],
+                        offset=offset,
+                    )
+
+            else:
+                # Should never happen, because we wouldn't call this routine if
+                # the lead wasn't on a chord note.
+                raise MusicEngineException(
+                    'harmonizePillarChordBass: lead note not in pillar chord'
+                )
+
+        elif roles == (1, 5, 7, 9):
+            # 9th chord with root
+            raise MusicEngineException(
+                f'Don\'t know how to harmonize this chord: {roles}'
+            )
+
+        elif roles == (1, 7, 9, 11):
+            # 11th chord with root
+            raise MusicEngineException(
+                f'Don\'t know how to harmonize this chord: {roles}'
+            )
+
+        elif roles == (3, 7, 9, 11):
+            # 11th chord with third
+            raise MusicEngineException(
+                f'Don\'t know how to harmonize this chord: {roles}'
+            )
+
+        elif (roles == (1, 9, 11, 13)
+                or roles == (3, 9, 11, 13)
+                or roles == (5, 9, 11, 13)):
+            # 13th chord
+            raise MusicEngineException(
+                f'Don\'t know how to harmonize this chord: {roles}'
+            )
+
+        else:
+            raise MusicEngineException(
+                f'Don\'t know how to harmonize this chord: {roles}'
+            )
+
+
         # Specify stem directions explicitly
         bass.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Bass]
 
@@ -1068,9 +1236,9 @@ class MusicEngine:
         arrType: ArrangementType,
         measure: FourVoices,
         offset: OffsetQL,
-        pillarChordSym: m21.harmony.ChordSymbol,
-        thisChord: FourNoteChord,
-        prevChord: FourNoteChord
+        pillarChord: Chord,
+        thisFourNotes: FourNotes,
+        prevFourNotes: FourNotes
     ):
         # From "Arranging Barbershop: Volume 2" pp11-13
         #
@@ -1083,24 +1251,15 @@ class MusicEngine:
         # before the Bari part.  So we can reference the Bass part (and adjust it as
         # necessary).
 
-        if isinstance(pillarChordSym, m21.harmony.NoChord):
+        if isinstance(pillarChord.sym, m21.harmony.NoChord):
             raise MusicEngineException('harmonizePillarChordPart: NoChord is not a pillar chord')
 
         partRange: VocalRange = PART_RANGES[arrType][PartName.Tenor]
 
-#         root: str | None
-#         third: str | None
-#         fifth: str | None
-#         seventh: str | None
-#         root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
-#         if t.TYPE_CHECKING:
-#             assert isinstance(root, str)
-#             assert isinstance(third, str)
-#             assert isinstance(fifth, str)
-        availablePitchNames: list[str] = thisChord.getAvailablePitchNames(pillarChordSym)
-
-        lead: m21.note.Note = thisChord[PartName.Lead]
+        lead: m21.note.Note = thisFourNotes[PartName.Lead]
         tenor: m21.note.Note | None = None
+
+        availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
 
         if t.TYPE_CHECKING:
             assert(isinstance(lead, m21.note.Note))
@@ -1118,7 +1277,7 @@ class MusicEngine:
             if partRange.isInRange(tenor.pitch):
                 break
 
-        if tenor is not None and partRange.isTooLow(tenor.pitch):
+        if tenor is None or partRange.isTooLow(tenor.pitch):
             # try again, an extra octave up
             for p in orderedPitchNames:
                 tenor = MusicEngine.makeNote(p, copyFrom=lead, above=lead, extraOctaves=1)
@@ -1145,9 +1304,9 @@ class MusicEngine:
         arrType: ArrangementType,
         measure: FourVoices,
         offset: OffsetQL,
-        pillarChordSym: m21.harmony.ChordSymbol,
-        thisChord: FourNoteChord,
-        prevChord: FourNoteChord
+        pillarChord: Chord,
+        thisFourNotes: FourNotes,
+        prevFourNotes: FourNotes
     ):
         # From "Arranging Barbershop: Volume 2" pp11-13
         #
@@ -1160,7 +1319,7 @@ class MusicEngine:
         # the entire Tenor part.  So we can reference the Bass/Tenor parts (and adjust
         # them as necessary).
 
-        if isinstance(pillarChordSym, m21.harmony.NoChord):
+        if isinstance(pillarChord.sym, m21.harmony.NoChord):
             raise MusicEngineException('harmonizePillarChordPart: NoChord is not a pillar chord')
 
         partRange: VocalRange = PART_RANGES[arrType][PartName.Bari]
@@ -1169,15 +1328,15 @@ class MusicEngine:
         third: str | None
         fifth: str | None
         seventh: str | None
-#         root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChordSym)
+#         root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChord)
 #         if t.TYPE_CHECKING:
 #             assert isinstance(root, str)
 #             assert isinstance(third, str)
 #             assert isinstance(fifth, str)
-        availablePitchNames: list[str] = thisChord.getAvailablePitchNames(pillarChordSym)
+        availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
 
-        lead: m21.note.Note = thisChord[PartName.Lead]
-        tenor: m21.note.Note = thisChord[PartName.Tenor]
+        lead: m21.note.Note = thisFourNotes[PartName.Lead]
+        tenor: m21.note.Note = thisFourNotes[PartName.Tenor]
 
         # bari gets whatever is left over (we can improve voice leading by trading notes,
         # obviously, but for now this is it).
@@ -1212,7 +1371,7 @@ class MusicEngine:
     def getChordAtOffset(
         measure: FourVoices,
         offset: OffsetQL
-    ) -> FourNoteChord:
+    ) -> FourNotes:
         tenor: m21.note.Note | m21.note.Rest | None = None
         lead: m21.note.Note | m21.note.Rest | None = None
         bari: m21.note.Note | m21.note.Rest | None = None
@@ -1251,14 +1410,14 @@ class MusicEngine:
         if bassNotes:
             bass = bassNotes[0]
 
-        return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+        return FourNotes(tenor=tenor, lead=lead, bari=bari, bass=bass)
 
     @staticmethod
     def getChordBeforeOffset(
         measure: FourVoices,
         prevMeasure: FourVoices | None,
         offset: OffsetQL
-    ) -> FourNoteChord:
+    ) -> FourNotes:
         tenor: m21.note.Note | m21.note.Rest | None
         lead: m21.note.Note | m21.note.Rest | None
         bari: m21.note.Note | m21.note.Rest | None
@@ -1270,8 +1429,8 @@ class MusicEngine:
 
         if offset == 0:
             if prevMeasure is None:
-                # there is no previous chord, return an empty FourNoteChord (all Nones)
-                return FourNoteChord()
+                # there is no previous chord, return an empty FourNotes (all Nones)
+                return FourNotes()
 
             tenor = None
             lead = None
@@ -1298,7 +1457,7 @@ class MusicEngine:
             if bassNotes:
                 bass = bassNotes[-1]
 
-            return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+            return FourNotes(tenor=tenor, lead=lead, bari=bari, bass=bass)
 
         # Non-zero offset, don't need prevMeasure at all, just get all the
         # notes/rests in the voice up to (but not including) offset, and
@@ -1344,7 +1503,7 @@ class MusicEngine:
         if bassNotes:
             bass = bassNotes[-1]
 
-        return FourNoteChord(tenor=tenor, lead=lead, bari=bari, bass=bass)
+        return FourNotes(tenor=tenor, lead=lead, bari=bari, bass=bass)
 
     @staticmethod
     def makeNote(
@@ -1428,7 +1587,7 @@ class MusicEngine:
 
     # @staticmethod
     # def appendShoppedChord(
-    #     fourNotes: FourNoteChord,
+    #     fourNotes: FourNotes,
     #     fourVoices: FourVoices
     # ):
     #     for note, voice in zip(fourNotes, fourVoices):
@@ -1440,15 +1599,15 @@ class MusicEngine:
     #         s.append(deepcopy(gn))
 
     @staticmethod
-    def findChordSymbolOverlappingOffset(
+    def findChordOverlappingOffset(
         measure: m21.stream.Measure,
         offset: OffsetQL
-    ) -> m21.harmony.ChordSymbol | None:
+    ) -> Chord | None:
         for cs in measure[m21.harmony.ChordSymbol]:
             startChord: OffsetQL = cs.getOffsetInHierarchy(measure)
             endChord: OffsetQL = startChord + cs.duration.quarterLength
             if startChord <= offset < endChord:
-                return cs
+                return Chord(cs)
 
         return None
 

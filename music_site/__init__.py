@@ -10,7 +10,7 @@ import music21 as m21
 
 from .music_engine import MusicEngine
 from .music_engine import MusicEngineException
-from .music_engine import FourNoteChord
+from .music_engine import FourNotes
 from .music_engine import ArrangementType
 from .music_engine import VocalRange
 from .music_engine import VocalRangeInfo
