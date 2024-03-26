@@ -9,6 +9,8 @@ from collections.abc import Sequence
 
 import music21 as m21
 from music21.common.numberTools import OffsetQL
+from music21.figuredBass import realizerScale
+
 
 import converter21
 
@@ -716,7 +718,8 @@ class MusicEngine:
                     # We update it in place before deepcopying, so it is updated
                     # everywhere.
                     cs.chordKind = 'augmented-dominant-ninth'
-                    cs._updatePitches()
+                    # fix bug in cs._updatePitches (it doesn't know about 'augmented' ninths)
+                    MusicEngine._updatePitches(cs)
                 measureStuff.append(cs)
                 offset = cs.getOffsetInHierarchy(cMeas)
                 tlMeas.insert(offset, deepcopy(cs))
@@ -736,6 +739,117 @@ class MusicEngine:
                 lead.insert(offset, el)
 
         return shopped, shoppedVoices
+
+    @staticmethod
+    def _updatePitches(cs: m21.harmony.ChordSymbol):
+        def adjustOctaves(cs, pitches):
+            from music21 import pitch, chord
+            self = cs  # because this is an edited copy of ChordSymbol._adjustOctaves
+            if not isinstance(pitches, list):
+                pitches = list(pitches)
+
+            # do this for all ninth, thirteenth, and eleventh chords...
+            # this must be done to get octave spacing right
+            # possibly rewrite figured bass function with this integrated?
+            # ninths = ['dominant-ninth', 'major-ninth', 'minor-ninth']
+            # elevenths = ['dominant-11th', 'major-11th', 'minor-11th']
+            # thirteenths = ['dominant-13th', 'major-13th', 'minor-13th']
+
+            if self.chordKind.endswith('-ninth'):
+                pitches[1] = pitch.Pitch(pitches[1].name + str(pitches[1].octave + 1))
+            elif self.chordKind.endswith('-11th'):
+                pitches[1] = pitch.Pitch(pitches[1].name + str(pitches[1].octave + 1))
+                pitches[3] = pitch.Pitch(pitches[3].name + str(pitches[3].octave + 1))
+
+            elif self.chordKind.endswith('-13th'):
+                pitches[1] = pitch.Pitch(pitches[1].name + str(pitches[1].octave + 1))
+                pitches[3] = pitch.Pitch(pitches[3].name + str(pitches[3].octave + 1))
+                pitches[5] = pitch.Pitch(pitches[5].name + str(pitches[5].octave + 1))
+            else:
+                return pitches
+
+            c = chord.Chord(pitches)
+            c = c.sortDiatonicAscending()
+
+            return list(c.pitches)
+
+        self = cs  # because this is a copy of ChordSymbol._updatePitches
+        if 'root' not in self._overrides or 'bass' not in self._overrides or self.chordKind is None:
+            return
+
+        # create figured bass scale with root as scale
+        scaleInitTuple = (self._overrides['root'].name, 'major')
+        fbScale = realizerScale.FiguredBassScale(self._overrides['root'], 'major')
+
+        # render in the 3rd octave by default
+        self._overrides['root'].octave = 3
+        self._overrides['bass'].octave = 3
+
+        if self._notationString():
+            pitches = fbScale.getSamplePitches(self._overrides['root'], self._notationString())
+            # remove duplicated bass note due to figured bass method.
+            pitches.pop(0)
+        else:
+            pitches = []
+            pitches.append(self._overrides['root'])
+            if self._overrides['bass'] not in pitches:
+                pitches.append(self._overrides['bass'])
+
+        pitches = adjustOctaves(self, pitches)
+
+        if self._overrides['root'].name != self._overrides['bass'].name:
+
+            inversionNum: int | None = self.inversion()
+
+            if not self.inversionIsValid(inversionNum):
+                # there is a bass, yet no normal inversion was found: must be added note
+
+                inversionNum = None
+                # arbitrary octave, must be below root,
+                # which was arbitrarily chosen as 3 above
+                self._overrides['bass'].octave = 2
+                pitches.append(self._overrides['bass'])
+        else:
+            self.inversion(None, transposeOnSet=False)
+            inversionNum = None
+
+        pitches = self._adjustPitchesForChordStepModifications(pitches)
+
+        if inversionNum not in (0, None):
+            if t.TYPE_CHECKING:
+                assert inversionNum is not None
+            for p in pitches[0:inversionNum]:
+                p.octave = p.octave + 1
+                # Repeat if 9th/11th/13th chord in 4th inversion or greater
+                if inversionNum > 3:
+                    p.octave = p.octave + 1
+
+            # if after bumping up the octaves, there are still pitches below bass pitch
+            # bump up their octaves
+            # bassPitch = pitches[inversionNum]
+
+            # self.bass(bassPitch)
+            for p in pitches:
+                if p.diatonicNoteNum < self._overrides['bass'].diatonicNoteNum:
+                    p.octave = p.octave + 1
+
+        while self._hasPitchAboveC4(pitches):
+            for thisPitch in pitches:
+                thisPitch.octave -= 1
+
+        # but if this has created pitches below lowest note (the A 3 octaves below middle C)
+        # on a standard piano, we're going to have to bump all the octaves back up
+        while self._hasPitchBelowA1(pitches):
+            for thisPitch in pitches:
+                thisPitch.octave += 1
+
+        self.pitches = tuple(pitches)
+        self.sortDiatonicAscending(inPlace=True)
+
+        # set overrides to be pitches in the harmony
+        # self._overrides = {}  # JTW: was wiping legit overrides such as root=C from 'C6'
+        self.bass(self.bass(), allow_add=True)
+        self.root(self.root())
 
     @staticmethod
     def processPillarChordsHarmony(
@@ -873,9 +987,32 @@ class MusicEngine:
             harmonyVoice: m21.stream.Voice = currMeasure[partName]
             harmonyNotes: list[m21.note.Note] = list(harmonyVoice[m21.note.Note])
             tiedPitchNames: set[str] = set()
-            if harmonyNotes:
-                if harmonyNotes[-1].tie is not None:
-                    tiedPitchNames.add(harmonyNotes[-1].pitch.nameWithOctave)
+            while True:  # fake loop to avoid deep if nesting
+                if prevMeasure is None:
+                    break
+
+                if not harmonyNotes or harmonyNotes[0].tie is None:
+                    break
+
+                prevHarmonyNotes: list[m21.note.GeneralNote] = list(
+                    prevMeasure[partName][m21.note.GeneralNote]
+                )
+                if not prevHarmonyNotes:
+                    break
+                if not isinstance(prevHarmonyNotes[-1], m21.note.Note):
+                    # can't be tied with Note (well, it could be a Chord, but we know not)
+                    break
+                if prevHarmonyNotes[-1].tie is None:
+                    break
+
+                prevNameWithOctave = prevHarmonyNotes[-1].pitch.nameWithOctave
+                if prevNameWithOctave != harmonyNotes[0].pitch.nameWithOctave:
+                    break
+                # Last pitch (in partName) in previous measure is tied with first pitch
+                # (in partName) in this measure, which will make any accidental on the
+                # first pitch hidden (tell makeAccidentals, so it will know to do that).
+                tiedPitchNames.add(prevNameWithOctave)
+                break
 
             harmonyVoice.makeAccidentals(
                 useKeySignature=True,
@@ -1324,25 +1461,29 @@ class MusicEngine:
 
         partRange: VocalRange = PART_RANGES[arrType][PartName.Bari]
 
-        root: str | None
-        third: str | None
-        fifth: str | None
-        seventh: str | None
-#         root, third, fifth, seventh = MusicEngine.getChordPitchNames(pillarChord)
-#         if t.TYPE_CHECKING:
-#             assert isinstance(root, str)
-#             assert isinstance(third, str)
-#             assert isinstance(fifth, str)
-        availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
-
-        lead: m21.note.Note = thisFourNotes[PartName.Lead]
         tenor: m21.note.Note = thisFourNotes[PartName.Tenor]
+        lead: m21.note.Note = thisFourNotes[PartName.Lead]
+        bass: m21.note.Note = thisFourNotes[PartName.Bass]
+
+        availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
 
         # bari gets whatever is left over (we can improve voice leading by trading notes,
         # obviously, but for now this is it).
         bari: m21.note.Note = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor)
         if partRange.isTooHigh(bari.pitch):
             bari = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor, extraOctaves=1)
+
+        if bari.pitch < bass.pitch:
+            # bari is below the bass, that's not right.  Trade pitches with bass.
+            bari = deepcopy(bass)
+            bass = MusicEngine.makeAndInsertNote(
+                availablePitchNames[0],
+                copyFrom=bass,
+                replacedNote=bass,
+                below=bari,
+                voice=measure[PartName.Bass],
+                offset=offset,
+            )
 
         if partRange.isOutOfRange(bari.pitch):
             raise MusicEngineException('failed to find a bari note for a pillar chord')
