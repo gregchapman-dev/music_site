@@ -890,7 +890,7 @@ class MusicEngine:
                     # to see one rest in each staff).  Also set all rest
                     # positions to center of staff, because we don't want
                     # it positioned just for the one voice.
-                    el.stepShift = 2  # I wish setting to 0 did something...
+                    el.stepShift = 0  # I wish setting to 0 did something...
                     rest: m21.note.Rest = deepcopy(el)
                     if partName == PartName.Tenor or partName == PartName.Bari:
                         rest.style.hideObjectOnPrint = True
@@ -920,7 +920,7 @@ class MusicEngine:
                     if partName == PartName.Bari:
                         noChordRest.style.hideObjectOnPrint = True
                     else:
-                        noChordRest.stepShift = 2  # I wish setting to 0 did something...
+                        noChordRest.stepShift = 0  # I wish setting to 0 did something...
 
                     currMeasure[partName].insert(offset, noChordRest)
                     continue
@@ -945,10 +945,10 @@ class MusicEngine:
                 #   thisFourNotes: FourNotes (read-only), for ease of looking up and down
                 #   prevFourNotes: FourNotes (read-only), for ease of looking back
                 thisFourNotes: FourNotes = (
-                    MusicEngine.getChordAtOffset(currMeasure, offset)
+                    MusicEngine.getFourNotesAtOffset(currMeasure, offset)
                 )
                 prevFourNotes: FourNotes = (
-                    MusicEngine.getChordBeforeOffset(currMeasure, prevMeasure, offset)
+                    MusicEngine.getFourNotesBeforeOffset(currMeasure, prevMeasure, offset)
                 )
 
                 if partName == PartName.Bass:
@@ -1509,7 +1509,7 @@ class MusicEngine:
         return sortedPitches
 
     @staticmethod
-    def getChordAtOffset(
+    def getFourNotesAtOffset(
         measure: FourVoices,
         offset: OffsetQL
     ) -> FourNotes:
@@ -1554,7 +1554,7 @@ class MusicEngine:
         return FourNotes(tenor=tenor, lead=lead, bari=bari, bass=bass)
 
     @staticmethod
-    def getChordBeforeOffset(
+    def getFourNotesBeforeOffset(
         measure: FourVoices,
         prevMeasure: FourVoices | None,
         offset: OffsetQL
