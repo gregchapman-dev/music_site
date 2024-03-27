@@ -33,6 +33,28 @@
         });
     }
 
+    function shopIt(arrType) {
+        formData = new FormData();
+        formData.append('command', 'shopIt');
+        formData.append('arrangementType', arrType);
+        formData.append('score', gScoreMusicXml);  // can't send Humdrum: no chordsyms
+        formData.append('format', 'musicxml')
+        fetch(
+            '/command',
+            {method: 'POST', body: formData }
+        ).then( async (resp) => {
+            await processMusicFromResponse(resp);
+        });
+    }
+
+    function shopItUpper() {
+        shopIt('UpperVoices')
+    }
+
+    function shopItLower() {
+        shopIt('LowerVoices')
+    }
+
     async function bytesToBase64DataUrl(bytes, type = "application/octet-stream") {
         return await new Promise((resolve, reject) => {
             const reader = Object.assign(new FileReader(), {
@@ -76,6 +98,8 @@
     // ----------- main code ----------------
 
     const transposeBtn = document.querySelector('#transpose');
+    const shopItUpperBtn = document.querySelector('#shopItUpper');
+    const shopItLowerBtn = document.querySelector('#shopItLower');
     const downloadAnchorTag = document.querySelector('#downloadAnchor');
     const fileElem = document.querySelector("#fileElem");
     fileElem.addEventListener("change", handleFiles, false);
@@ -96,3 +120,5 @@
     let gScoreHumdrum;   // for uploading with commands (it's way smaller)
 
     transposeBtn.addEventListener("click", transpose);
+    shopItUpperBtn.addEventListener("click", shopItUpper)
+    shopItLowerBtn.addEventListener("click", shopItLower)

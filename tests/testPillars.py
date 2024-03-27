@@ -49,5 +49,9 @@ shoppedPillarsUpperVoicesScore: m21.stream.Score = (
 )
 shoppedPillarsUpperVoicesScore.write(fmt='musicxml', fp=outPath, makeNotation=False)
 
+humdrumPath: Path = Path(tempfile.gettempdir()) / (inPath.stem + '_ShoppedPillarsUpper.krn')
+print(f'shopped pillars (upper) Humdrum file: {humdrumPath}')
+shoppedPillarsUpperVoicesScore.write(fmt='humdrum', fp=humdrumPath, makeNotation=False)
+
 print('all done.')
 

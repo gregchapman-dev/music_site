@@ -13,6 +13,7 @@ from music21.figuredBass import realizerScale
 
 
 import converter21
+from converter21 import M21Utilities
 
 # Register the Humdrum and MEI readers/writers from converter21
 converter21.register()
@@ -378,7 +379,7 @@ class MusicEngine:
     @staticmethod
     def toMusic21Score(fileData: str | bytes, fileName: str) -> m21.stream.Score:
         fmt: str = m21.common.findFormatFile(fileName)
-
+        print(f'toMusicScore(fileName={fileName}): fmt={fmt}')
         if isinstance(fileData, bytes):
             if fileData[:4] == b'PK\x03\x04':
                 # it's a zip file (probably .mxl file), extract the contents
@@ -407,6 +408,7 @@ class MusicEngine:
                         print('couldn\'t decode, trying parse() anyway')
                         pass  # carry on with fileData as it was
 
+        print(f'toMusicScore: parsing: first 300 bytes of score: {fileData[0:300]!r}')
         output = m21.converter.parse(fileData, format=fmt, forceSource=True)
         if t.TYPE_CHECKING:
             assert isinstance(output, m21.stream.Score)
@@ -605,6 +607,20 @@ class MusicEngine:
         for partName in (PartName.Bass, PartName.Tenor, PartName.Bari):
             MusicEngine.processPillarChordsHarmony(arrType, partName, shoppedVoices, chords)
 
+        # Time to remove the placeholder rests we added earlier to all the measures in bbPart
+        # (in MusicEngine.processPillarChordsLead).
+        bbStaff: m21.stream.Part
+        for staff in shopped[m21.stream.Part]:
+            if staff.id == 'Bass/Baritone':
+                bbStaff = staff
+                break
+
+        for bbMeas in bbStaff[m21.stream.Measure]:
+            rests: list[m21.note.Rest] = list(bbMeas[m21.note.Rest])
+            for rest in rests:
+                if hasattr(rest, 'shopit_isPlaceHolder'):
+                    bbMeas.remove(rest)
+
         return shopped
 
     @staticmethod
@@ -619,8 +635,12 @@ class MusicEngine:
 
         # Set up the initial shopped Score with two Parts: Tenor/Lead and Bari/Bass
         tlStaff: m21.stream.Part = m21.stream.Part()
+        tlStaff.id = 'Tenor/Lead'
         shopped.insert(0, tlStaff)
         bbStaff: m21.stream.Part = m21.stream.Part()
+        # If you change bbStaff.id to something else, search and replace,
+        # or it'll break something.
+        bbStaff.id = 'Bass/Baritone'
         shopped.insert(0, bbStaff)
 
         for mIdx, (mMeas, cMeas) in enumerate(
@@ -737,6 +757,25 @@ class MusicEngine:
                 if isinstance(el, m21.note.NotRest):
                     el.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Lead]
                 lead.insert(offset, el)
+
+            # tlMeas will be of the right duration due to the melody and chords,
+            # but bbMeas will not.  It needs to have the right duration before
+            # (1) append the right barline and (2) append another measure, or
+            # those items will have the wrong offset in the score.  So just
+            # put an invisible rest in bbMeas that has the same duration as
+            # bbMeas.  Note that if (e.g.) tlMeas is 5 quarter-notes long, you
+            # can't just put in one rest, because 5 isn't a valid single note/rest
+            # duration.  So we split it into simple duration rests, and insert
+            # them all.  We will remove these after shopping the score, so we
+            # mark them with a custom attribute (rest.shopit_isPlaceHolder = True).
+            placeholderRest: m21.note.Rest = m21.note.Rest()
+            placeholderRest.quarterLength = tlMeas.quarterLength
+            rOffset: OffsetQL = 0.
+            for rest in M21Utilities.splitComplexRestDuration(placeholderRest):
+                rest.style.hideObjectOnPrint = True
+                rest.shopit_isPlaceHolder = True  # type: ignore
+                bbMeas.insert(rOffset, rest)
+                rOffset += rest.quarterLength
 
         return shopped, shoppedVoices
 

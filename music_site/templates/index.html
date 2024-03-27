@@ -13,10 +13,10 @@
         src="{{ url_for('static', filename='scripts/transpose.js') }}"
         defer>
     </script>
-    <title>music21 test</title>
+    <title>Music Munger</title>
 </head>
 <body>
-    <h1>Test Site</h1>
+    <h1>Music Munger</h1>
     <input
           type="file"
           id="fileElem"
@@ -25,6 +25,8 @@
     <button id="fileSelect" type="button" class="btn">Select a score (MusicXML, Humdrum, MEI)</button>
 
     <button id="transpose" type="button" class="btn">Transpose score</button>
+    <button id="shopItUpper" type="button" class="btn">Shop it! (SSAA)</button>
+    <button id="shopItLower" type="button" class="btn">Shop it! (TTBB)</button>
 
     <a id="downloadAnchor" download href="data:plain/text,NothingHere">Download score (MusicXML)</a>
 </body>
