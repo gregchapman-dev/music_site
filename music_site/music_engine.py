@@ -542,6 +542,70 @@ class MusicEngine:
     }
 
     @staticmethod
+    def realizeChordSymbolDurations(piece: m21.stream.Stream):
+        # this is a copy of m21.harmony.realizeChordSymbolDurations, that instead
+        # of extending a chordsym duration beyond the end-of-measure, will extend
+        # to end of measure, and then insert a copy of the chordsym into the start
+        # of the next measure, with the remainder of the duration.
+        # We make the simplifying assumption (for now) that any given ChordSymbol
+        # will only cross one barline.
+        pf = piece.flatten()
+        onlyChords = list(pf.getElementsByClass(m21.harmony.ChordSymbol))
+
+        first = True
+        lastChord = None
+
+        if len(onlyChords) == 0:
+            return piece
+
+        for cs in onlyChords:
+            if first:
+                first = False
+                lastChord = cs
+                continue
+
+            # last/thisChordMeas might be Voices; if so I hope they are both
+            # at offset 0 in their respective Measures.
+            lastChordMeas: m21.stream.Stream = piece.containerInHierarchy(
+                lastChord, setActiveSite=False)
+            lastChordOffsetInMeas = lastChord.getOffsetInHierarchy(lastChordMeas)
+            thisChordMeas: m21.stream.Stream = piece.containerInHierarchy(
+                cs, setActiveSite=False)
+            thisChordOffsetInMeas = cs.getOffsetInHierarchy(thisChordMeas)
+
+            qlDiff = pf.elementOffset(cs) - pf.elementOffset(lastChord)
+            if lastChordMeas is thisChordMeas:
+                lastChord.duration.quarterLength = qlDiff
+            else:
+                # split qlDiff into two parts:
+                # 1. the available room in lastChordMeas, and
+                # 2. the remainder (which will land in thisChordMeas)
+                qlDiff1: OffsetQL = qlDiff - thisChordOffsetInMeas
+                qlDiff2: OffsetQL = qlDiff - qlDiff1
+                lastChord.duration.quarterLength = qlDiff1
+                if qlDiff2 != 0:
+                    lastChord2: m21.harmony.ChordSymbol = deepcopy(lastChord)
+                    lastChord2.duration.quarterLength = qlDiff2
+                    thisChordMeas.insert(0, lastChord2)
+            lastChord = cs
+
+        # on exit from the loop, all but lastChord has been handled
+        qlDiff = pf.highestTime - pf.elementOffset(lastChord)
+        if lastChordMeas is thisChordMeas:
+            lastChord.duration.quarterLength = qlDiff
+        else:
+            # split qlDiff into two parts:
+            # 1. the available room in lastChordMeas, and
+            # 2. the remainder (which will land in thisChordMeas)
+            qlDiff1 = qlDiff - lastChord.offsetInHierarchy(lastChordMeas)
+            qlDiff2 = qlDiff - qlDiff1
+            lastChord.duration.quarterLength = qlDiff1
+            if qlDiff2 != 0:
+                lastChord2: m21.harmony.ChordSymbol = deepcopy(lastChord)
+                lastChord2.duration.quarterLength = qlDiff2
+                lastChord2.insert(0, thisChordMeas)
+
+    @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
         arrType: ArrangementType
@@ -557,7 +621,7 @@ class MusicEngine:
         # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
         # duration == 0 or 1, which doesn't help us find the ChordSymbol that has a
         # time range that contains a particular offset.
-        m21.harmony.realizeChordSymbolDurations(leadSheet)
+        MusicEngine.realizeChordSymbolDurations(leadSheet)
 
         melody: m21.stream.Part | None
         chords: m21.stream.Part | None
