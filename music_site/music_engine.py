@@ -549,6 +549,10 @@ class MusicEngine:
         # of the next measure, with the remainder of the duration.
         # We make the simplifying assumption (for now) that any given ChordSymbol
         # will only cross one barline.
+
+        # TODO: deal with two chordsyms at the same offset; they should both last until
+        # the _next_ chord.
+
         pf = piece.flatten()
         onlyChords = list(pf.getElementsByClass(m21.harmony.ChordSymbol))
 
