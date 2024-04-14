@@ -6,17 +6,25 @@
         integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ=="
         crossorigin="anonymous">
     <script
-        src="{{ url_for('static', filename='node_modules/music21j/releases/music21.debug.js') }}"
+        src="https://www.verovio.org/javascript/latest/verovio-toolkit-wasm.js"
         defer>
     </script>
     <script
-        src="{{ url_for('static', filename='scripts/transpose.js') }}"
+        src="{{ url_for('static', filename='scripts/shopit.js') }}"
         defer>
     </script>
-    <title>Music Munger</title>
+    <script>
+      document.addEventListener("DOMContentLoaded", (event) => {
+          verovio.module.onRuntimeInitialized = () => {
+            let tk = new verovio.toolkit();
+            console.log("Verovio has loaded!");
+          }
+      });
+    </script>
+    <title>Shop it!</title>
 </head>
 <body>
-    <h1>Music Munger</h1>
+    <h1>Shop it!</h1>
     <input
           type="file"
           id="fileElem"
@@ -29,5 +37,6 @@
     <button id="shopItLower" type="button" class="btn">Shop it! (TTBB)</button>
 
     <a id="downloadAnchor" download href="data:plain/text,NothingHere">Download score (MusicXML)</a>
+    <div id="notation"></div>
 </body>
 </html>

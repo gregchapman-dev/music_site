@@ -5,15 +5,11 @@
         jsonBody = await resp.json();
         gScoreMusicXml = jsonBody['musicxml'];
         gScoreHumdrum = jsonBody['humdrum'];
+        gScoreMei = jsonBody['mei']
 
         // 2. We draw it on the webpage.
-        const sp = new music21.musicxml.xmlToM21.ScoreParser();
-        gScore = sp.scoreFromText(gScoreMusicXml);
-        if (gScoreEl === undefined) {
-            gScoreEl = gScore.appendNewDOM();
-        } else {
-            gScoreEL = gScore.replaceDOM()
-        }
+        let svg = tk.renderData(gScoreMei, {});
+        document.getElementById("notation").innerHTML = svg;
 
         // 3. We insert it as a data URL in the download anchor tag.
         await replaceDataUrl(downloadAnchorTag, gScoreMusicXml);
@@ -37,8 +33,8 @@
         formData = new FormData();
         formData.append('command', 'shopIt');
         formData.append('arrangementType', arrType);
-        formData.append('score', gScoreMusicXml);  // can't send Humdrum: no chordsyms
-        formData.append('format', 'musicxml')
+        formData.append('score', gScoreHumdrum);
+        formData.append('format', 'humdrum')
         fetch(
             '/command',
             {method: 'POST', body: formData }
@@ -66,15 +62,16 @@
     }
 
     async function replaceDataUrl(anchorTag, text) {
-        anchorTag.download = "Processed.musicxml";
+        anchorTag.download = "Shopped.musicxml";
         anchorTag.href = await bytesToBase64DataUrl(text);
     }
 
     function handleFiles() {
         // Assumes only one MusicXML file (since our HTML only allows one).
         // POSTs to server to be saved for later processing; displays the
-        // resulting MusicXML (from response), and adds a download data URL
-        // to the DOM for the user to save off that MusicXML).
+        // resulting MEI (from response), remembers the Humdrum (for quick
+        // use during commands) and adds a download data URL to the DOM
+        // for the user to save off the MusicXML).
         const selectedFile = this.files[0];
         const reader = new FileReader();
         reader.onload = async (e) => {
@@ -97,6 +94,13 @@
 
     // ----------- main code ----------------
 
+    document.addEventListener("DOMContentLoaded", (event) => {
+        verovio.module.onRuntimeInitialized = () => {
+            let tk = new verovio.toolkit();
+            console.log("Verovio has loaded!");
+        }
+    });
+
     const transposeBtn = document.querySelector('#transpose');
     const shopItUpperBtn = document.querySelector('#shopItUpper');
     const shopItLowerBtn = document.querySelector('#shopItLower');
@@ -116,8 +120,9 @@
 
     let gScore;
     let gScoreEl;
-    let gScoreMusicXml;  // for drawing
+    let gScoreMusicXml;  // for downloading
     let gScoreHumdrum;   // for uploading with commands (it's way smaller)
+    let gScoreMei;       // for rendering with verovio
 
     transposeBtn.addEventListener("click", transpose);
     shopItUpperBtn.addEventListener("click", shopItUpper)
