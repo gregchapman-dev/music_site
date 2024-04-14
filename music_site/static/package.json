@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "music21j": "^0.15.8"
+    "verovio": "^4.1.0"
   }
 }
