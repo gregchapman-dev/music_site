@@ -148,9 +148,10 @@ def command() -> dict:
         try:
             shoppedScore = MusicEngine.shopPillarMelodyNotesFromLeadSheet(m21Score, arrType)
             result = produceResultScores(shoppedScore)
-        except Exception:
+        except Exception as e:
             print('Failed to shopIt/export')
-            abort(422, 'Failed to shopIt/export')
+            raise e
+            # abort(422, 'Failed to shopIt/export')
 
     else:
         print('Invalid music engine command: {cmd}')

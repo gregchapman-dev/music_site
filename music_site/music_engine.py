@@ -608,7 +608,8 @@ class MusicEngine:
             # split qlDiff into two parts:
             # 1. the available room in lastChordMeas, and
             # 2. the remainder (which will land in thisChordMeas)
-            qlDiff1 = qlDiff - lastChord.offsetInHierarchy(lastChordMeas)
+            lastChordMeas = piece.containerInHierarchy(lastChord, setActiveSite=False)
+            qlDiff1 = qlDiff - lastChord.getOffsetInHierarchy(lastChordMeas)
             qlDiff2 = qlDiff - qlDiff1
             lastChord.duration.quarterLength = qlDiff1
             if qlDiff2 != 0:
@@ -823,6 +824,9 @@ class MusicEngine:
             # and any clefs and any LayoutBase (we don't care how the
             # leadsheet was laid out) and put them in the lead voice.
             for el in mMeas.recurse():
+                if isinstance(el, m21.stream.Stream):
+                    # e.g. a voice within the measure
+                    continue
                 if isinstance(el, (m21.clef.Clef, m21.layout.LayoutBase)):
                     continue
                 if el in measureStuff:
@@ -1911,7 +1915,9 @@ class MusicEngine:
             voices: list[m21.stream.Voice] =  list(meas[m21.stream.Voice])
             # 0 voices or 1 voice is fine (0 voices means the measure is the "voice")
             if len(voices) > 1:
-                return None, None
+                # remove the extraneous voices (assume first voice is the melody)
+                for voice in voices[1:]:
+                    meas.remove(voice)
 
         chordPart: m21.stream.Part | None = None
         for part in parts:

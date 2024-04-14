@@ -13,14 +13,6 @@
         src="{{ url_for('static', filename='scripts/shopit.js') }}"
         defer>
     </script>
-    <script>
-      document.addEventListener("DOMContentLoaded", (event) => {
-          verovio.module.onRuntimeInitialized = () => {
-            let tk = new verovio.toolkit();
-            console.log("Verovio has loaded!");
-          }
-      });
-    </script>
     <title>Shop it!</title>
 </head>
 <body>
