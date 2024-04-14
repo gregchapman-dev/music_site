@@ -100,6 +100,17 @@
         verovio.module.onRuntimeInitialized = () => {
             tk = new verovio.toolkit();
             console.log("Verovio has loaded!");
+//             console.log("Verovio default options:", tk.getDefaultOptions());
+            tk.setOptions({
+//                 breaks: "none",
+                scale: 30,
+//                 landscape: true,
+                scaleToPageSize: true,
+                pageWidth: 1000,
+//                 adjustPageWidth: true,
+//                 adjustPageHeight: true
+            })
+//             console.log("Verovio options:", tk.getOptions());
         }
     });
 
