@@ -80,16 +80,19 @@ def getScore(request) -> m21.stream.Score:
     #     print('Score failed to parse')
     #     abort(422, 'Score failed to parse')
 
-def produceResultMusicXMLAndHumdrumScore(m21Score: m21.stream.Score) -> dict:
+def produceResultScores(m21Score: m21.stream.Score) -> dict:
     print('producing MusicXML')
-    transposedMusicXML = MusicEngine.toMusicXML(m21Score)
+    musicXML = MusicEngine.toMusicXML(m21Score)
     print('done producing MusicXML')
     print('producing Humdrum')
-    transposedHumdrum: str = MusicEngine.toHumdrum(m21Score)
+    humdrum: str = MusicEngine.toHumdrum(m21Score)
     print('done producing Humdrum')
+    print('producing MEI')
+    mei: str = MusicEngine.toMei(m21Score)
     return {
-        'musicxml': transposedMusicXML,
-        'humdrum': transposedHumdrum
+        'musicxml': musicXML,
+        'humdrum': humdrum,
+        'mei': mei
     }
 
 @app.route('/command', methods=['POST'])
@@ -157,38 +160,23 @@ def command() -> dict:
     print(f'first 100 bytes of transposedHumdrum: {result["humdrum"][0:100]!r}')
     return result
 
-@app.route('/score', methods=['GET', 'POST'])
+@app.route('/score', methods=['POST'])
 def score() -> dict:
-    if request.method == 'POST':
-        # files in formdata end up in request.files
-        # all other formdata entries end up in request.form
-        file = request.files['file']
-        fileName: str = request.form['filename']
-        fileData: str | bytes = file.read()
-        print(f'PUT /score: first 100 bytes of {fileName}: {fileData[0:100]!r}')
-        musicXMLStr: str = ''
-        try:
-            # import into music21 (saving the m21 score in gM21Score)
-            print(f'PUT /score: parsing {fileName}')
-            m21Score = MusicEngine.toMusic21Score(fileData, fileName)
-            # export to MusicXML (to a string)
-            print('PUT /score: writing MusicXML string')
-            musicXMLStr = MusicEngine.toMusicXML(m21Score)
-            print('PUT /score: writing Humdrum string')
-            humdrumStr = MusicEngine.toHumdrum(m21Score)
-        except Exception:
-            print('Exception during parse/write')
-            abort(422, 'Unprocessable music score')  # Unprocessable Content
+    # files in formdata end up in request.files
+    # all other formdata entries end up in request.form
+    file = request.files['file']
+    fileName: str = request.form['filename']
+    fileData: str | bytes = file.read()
+    print(f'PUT /score: first 100 bytes of {fileName}: {fileData[0:100]!r}')
+    result: dict[str, str] = {}
+    try:
+        # import into music21 (saving the m21 score in gM21Score)
+        print(f'PUT /score: parsing {fileName}')
+        m21Score = MusicEngine.toMusic21Score(fileData, fileName)
+        # export to various formats
+        result = produceResultScores(m21Score)
+    except Exception:
+        print('Exception during parse/write')
+        abort(422, 'Unprocessable music score')  # Unprocessable Content
 
-    # return MusicXML no matter whether GET or POST (so client can display it)
-    if not musicXMLStr:
-        # no exception, but musicXMLStr is empty
-        print('No MusicXML generated')
-        abort(422, 'No MusicXML generated')  # Unprocessable Content
-
-    print('PUT/GET /score returning MusicXML+Humdrum strings')
-    print(f'first 100 bytes of humdrumStr: {humdrumStr[0:100]!r}')
-    return {
-        'musicxml': musicXMLStr,  # for display by client (music21j only displays MusicXML)
-        'humdrum': humdrumStr     # for upload by client with commands (much smaller)
-    }
+    return result

@@ -377,6 +377,13 @@ class MusicEngine:
         return output
 
     @staticmethod
+    def toMei(score: m21.stream.Score) -> str:
+        output: str | bytes = m21.converter.toData(score, fmt='mei', makeNotation=False)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, str)
+        return output
+
+    @staticmethod
     def toMusic21Score(fileData: str | bytes, fileName: str) -> m21.stream.Score:
         fmt: str = m21.common.findFormatFile(fileName)
         print(f'toMusicScore(fileName={fileName}): fmt={fmt}')
