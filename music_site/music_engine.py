@@ -635,6 +635,10 @@ class MusicEngine:
         # time range that contains a particular offset.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
 
+        # more fixups to the leadsheet score
+        M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
+        M21Utilities.fixupBadBeams(leadSheet, inPlace=True)
+
         melody: m21.stream.Part | None
         chords: m21.stream.Part | None
         melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
