@@ -94,9 +94,11 @@
 
     // ----------- main code ----------------
 
+    let tk;
+
     document.addEventListener("DOMContentLoaded", (event) => {
         verovio.module.onRuntimeInitialized = () => {
-            let tk = new verovio.toolkit();
+            tk = new verovio.toolkit();
             console.log("Verovio has loaded!");
         }
     });

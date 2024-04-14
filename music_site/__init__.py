@@ -80,9 +80,9 @@ def getScore(request) -> m21.stream.Score:
     #     print('Score failed to parse')
     #     abort(422, 'Score failed to parse')
 
-def produceResultScores(m21Score: m21.stream.Score) -> dict:
+def produceResultScores(m21Score: m21.stream.Score) -> dict[str, str]:
     print('producing MusicXML')
-    musicXML = MusicEngine.toMusicXML(m21Score)
+    musicXML: str = MusicEngine.toMusicXML(m21Score)
     print('done producing MusicXML')
     print('producing Humdrum')
     humdrum: str = MusicEngine.toHumdrum(m21Score)
@@ -122,7 +122,7 @@ def command() -> dict:
         try:
             print('transposing music21 score')
             MusicEngine.transposeInPlace(transposeScore, semitones)
-            result = produceResultMusicXMLAndHumdrumScore(transposeScore)
+            result = produceResultScores(transposeScore)
         except Exception:
             print('Failed to transpose/export')
             abort(422, 'Failed to transpose/export')  # Unprocessable Content
@@ -147,7 +147,7 @@ def command() -> dict:
 
         try:
             shoppedScore = MusicEngine.shopPillarMelodyNotesFromLeadSheet(m21Score, arrType)
-            result = produceResultMusicXMLAndHumdrumScore(shoppedScore)
+            result = produceResultScores(shoppedScore)
         except Exception:
             print('Failed to shopIt/export')
             abort(422, 'Failed to shopIt/export')
@@ -156,8 +156,7 @@ def command() -> dict:
         print('Invalid music engine command: {cmd}')
         abort(400, 'Invalid music engine command')
 
-    print('returning MusicXML+Humdrum in response JSON')
-    print(f'first 100 bytes of transposedHumdrum: {result["humdrum"][0:100]!r}')
+    # print(f'first 100 bytes of humdrum: {result["humdrum"][0:100]!r}')
     return result
 
 @app.route('/score', methods=['POST'])
