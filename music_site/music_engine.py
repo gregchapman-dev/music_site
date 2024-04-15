@@ -74,7 +74,7 @@ class Chord(Sequence):
         # help us figure out the difference between role=4 and role=11 (cs.getChordStep
         # won't help us at all).
         pitchNames: list[str] = [p.name for p in cs.pitches]
-        pitchesForRole: list[m21.pitch.Pitch | None] = [None] * 13
+        pitchesForRole: list[m21.pitch.Pitch | None] = [None] * 14
         for i in range(1, 8):
             try:
                 pitchesForRole[i] = cs.getChordStep(i)
@@ -487,6 +487,13 @@ class MusicEngine:
         score: m21.stream.Score,
         semitonesUp: int
     ) -> m21.interval.Interval:
+        # if semitonesUp is more than an octave, trim it, but remember how many octaves
+        # you trimmed.
+        # And this is the horrible thing you have to do to get integer
+        # truncation toward zero.
+        octavesUp: int = -(-semitonesUp // 12) if semitonesUp < 0 else semitonesUp // 12
+        semitonesUp = semitonesUp - (octavesUp * 12)
+
         # We need to transpose the key, and pick the right enharmonic
         # key that has <= 7 sharps or flats, or we'll end up in the
         # key of G# major and have 8 sharps (or worse).
@@ -503,20 +510,23 @@ class MusicEngine:
         keyPitch = m21.pitch.Pitch(majorKey)
         chromatic = m21.interval.ChromaticInterval(semitonesUp)
         newKeyPitch: m21.pitch.Pitch = chromatic.transposePitch(keyPitch)
-        if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
-            # put octaves on them now, and then check it
-            keyPitch.octave = 4
-            newKeyPitch.octave = 4
-            if (newKeyPitch < keyPitch) != (semitonesUp < 0):
-                # We need to adjust newKeyPitch's octave now,
-                # so we transpose in the right direction.
-                if semitonesUp < 0:
-                    # we should be transposing down, not up
-                    newKeyPitch.octave -= 1
-                else:
-                    # we should be transposing up, not down
-                    newKeyPitch.octave += 1
 
+        # put octaves on them now, and then check it
+        keyPitch.octave = 4
+        newKeyPitch.octave = 4
+        if (newKeyPitch < keyPitch) != (semitonesUp < 0):
+            # We need to adjust newKeyPitch's octave now,
+            # so we transpose in the right direction.
+            if semitonesUp < 0:
+                # we should be transposing down, not up
+                newKeyPitch.octave -= 1
+            else:
+                # we should be transposing up, not down
+                newKeyPitch.octave += 1
+
+        newKeyPitch.octave += octavesUp
+
+        if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
             interval = m21.interval.Interval(keyPitch, newKeyPitch)
             return interval
 
@@ -615,7 +625,7 @@ class MusicEngine:
             if qlDiff2 != 0:
                 lastChord2: m21.harmony.ChordSymbol = deepcopy(lastChord)
                 lastChord2.duration.quarterLength = qlDiff2
-                lastChord2.insert(0, thisChordMeas)
+                thisChordMeas.insert(0, lastChord2)
 
     @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
@@ -643,7 +653,7 @@ class MusicEngine:
         chords: m21.stream.Part | None
         melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
         if melody is None or chords is None:
-            raise MusicEngineException
+            raise MusicEngineException('not a useable leadsheet (no melody, or no chords)')
 
         # Now pick a key that will work for lead voice range, and transpose.
         melodyInfo: VocalRangeInfo = VocalRangeInfo(melody)
@@ -1453,18 +1463,21 @@ class MusicEngine:
 
         elif roles == (1, 5, 7, 9):
             # 9th chord with root
+            return
             raise MusicEngineException(
                 f'Don\'t know how to harmonize this chord: {roles}'
             )
 
         elif roles == (1, 7, 9, 11):
-            # 11th chord with root
+            # 11th chord with root in lead
+            return
             raise MusicEngineException(
                 f'Don\'t know how to harmonize this chord: {roles}'
             )
 
         elif roles == (3, 7, 9, 11):
-            # 11th chord with third
+            # 11th chord with third in lead
+            return
             raise MusicEngineException(
                 f'Don\'t know how to harmonize this chord: {roles}'
             )
@@ -1472,7 +1485,8 @@ class MusicEngine:
         elif (roles == (1, 9, 11, 13)
                 or roles == (3, 9, 11, 13)
                 or roles == (5, 9, 11, 13)):
-            # 13th chord
+            # 13th chord with 1, 3, or 5 in lead
+            return
             raise MusicEngineException(
                 f'Don\'t know how to harmonize this chord: {roles}'
             )
@@ -1549,6 +1563,13 @@ class MusicEngine:
                 if partRange.isInRange(tenor.pitch):
                     break
 
+        if tenor is None or partRange.isTooHigh(tenor.pitch):
+            # try again, an extra octave below
+            for p in reversed(orderedPitchNames):
+                tenor = MusicEngine.makeNote(p, copyFrom=lead, below=lead, extraOctaves=1)
+                if partRange.isInRange(tenor.pitch):
+                    break
+
         if tenor is None or partRange.isOutOfRange(tenor.pitch):
             raise MusicEngineException('failed to find a tenor note for a pillar chord')
 
@@ -1581,7 +1602,8 @@ class MusicEngine:
         if isinstance(pillarChord.sym, m21.harmony.NoChord):
             raise MusicEngineException('harmonizePillarChordPart: NoChord is not a pillar chord')
 
-        partRange: VocalRange = PART_RANGES[arrType][PartName.Bari]
+        bariPartRange: VocalRange = PART_RANGES[arrType][PartName.Bari]
+        tenorPartRange: VocalRange = PART_RANGES[arrType][PartName.Tenor]
 
         tenor: m21.note.Note = thisFourNotes[PartName.Tenor]
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
@@ -1592,7 +1614,7 @@ class MusicEngine:
         # bari gets whatever is left over (we can improve voice leading by trading notes,
         # obviously, but for now this is it).
         bari: m21.note.Note = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor)
-        if partRange.isTooHigh(bari.pitch):
+        if bariPartRange.isTooHigh(bari.pitch):
             bari = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor, extraOctaves=1)
 
         if bari.pitch < bass.pitch:
@@ -1607,8 +1629,18 @@ class MusicEngine:
                 offset=offset,
             )
 
-        if partRange.isOutOfRange(bari.pitch):
+        if bariPartRange.isOutOfRange(bari.pitch):
+            # can we trade with tenor?  (switching octaves to stay in range if necessary)
+            bari, tenor = tenor, bari
+            if bariPartRange.isTooHigh(bari.pitch):
+                bari.pitch.octave -= 1
+            if tenorPartRange.isTooLow(tenor.pitch):
+                tenor.pitch.octave += 1
+
+        if bariPartRange.isOutOfRange(bari.pitch):
             raise MusicEngineException('failed to find a bari note for a pillar chord')
+        if tenorPartRange.isOutOfRange(tenor.pitch):
+            raise MusicEngineException('failed to trade for a bari note for a pillar chord')
 
         # Specify stem directions explicitly
         bari.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Bari]
@@ -1915,7 +1947,7 @@ class MusicEngine:
             return None, None
 
         melodyPart: m21.stream.Part = parts[0]
-        for meas in melodyPart[m21.stream.Measure]:
+        for meas in list(melodyPart[m21.stream.Measure]):
             voices: list[m21.stream.Voice] =  list(meas[m21.stream.Voice])
             # 0 voices or 1 voice is fine (0 voices means the measure is the "voice")
             if len(voices) > 1:
