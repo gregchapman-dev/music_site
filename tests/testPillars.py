@@ -46,8 +46,8 @@ def runTheTest(inputPath: Path) -> bool:
     meiUpperPath /= (inputPath.stem + '_Upper')
     meiUpperPath = meiUpperPath.with_suffix('.mei')
 
-    # lowerShop.write(fp=meiLowerPath, fmt='mei', makeNotation=False)
-    # upperShop.write(fp=meiUpperPath, fmt='mei', makeNotation=False)
+    lowerShop.write(fp=meiLowerPath, fmt='mei', makeNotation=False)
+    upperShop.write(fp=meiUpperPath, fmt='mei', makeNotation=False)
 
     # export scores back to Humdrum (without any makeNotation fixups)
     print('writing both shopped scores to Humdrum')
