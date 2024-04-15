@@ -1305,6 +1305,7 @@ class MusicEngine:
                     if partRange.isTooLow(bass.pitch):
                         # still too low, just sing the same note (root) as the lead
                         bass = deepcopy(lead)
+                        bass.lyrics = []
 
             elif lead.pitch.name == third:
                 # Lead is on third, take root a 10th below
@@ -1323,6 +1324,7 @@ class MusicEngine:
                     # Ugh. Lead must be really low. Push the lead up a 4th to
                     # the next higher root, and take the lead note yourself.
                     bass = deepcopy(lead)  # fifth, assume it's in bass range
+                    bass.lyrics=[]
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         root,
                         copyFrom=lead,
@@ -1380,6 +1382,7 @@ class MusicEngine:
                 bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     bass = deepcopy(lead)  # assume it's in bass range
+                    bass.lyrics = []
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         fifth,
                         copyFrom=lead,
@@ -1427,6 +1430,7 @@ class MusicEngine:
                     if partRange.isTooLow(bass.pitch):
                         # still too low, just sing the same note (root) as the lead
                         bass = deepcopy(lead)
+                        bass.lyrics = []
 
             elif lead.pitch.name == third:
                 # Lead is on third, take root a 10th below
@@ -1445,6 +1449,7 @@ class MusicEngine:
                     # Ugh. Lead must be really low. Push the lead up a 4th to
                     # the next higher root, and take the lead note yourself.
                     bass = deepcopy(lead)  # sixth, assume it's in bass range
+                    bass.lyrics = []
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         root,
                         copyFrom=lead,
@@ -1620,6 +1625,7 @@ class MusicEngine:
         if bari.pitch < bass.pitch:
             # bari is below the bass, that's not right.  Trade pitches with bass.
             bari = deepcopy(bass)
+            bari.lyrics = []
             bass = MusicEngine.makeAndInsertNote(
                 availablePitchNames[0],
                 copyFrom=bass,
@@ -1676,34 +1682,38 @@ class MusicEngine:
         tenorNotes: list[m21.note.Note | m21.note.Rest] = list(
             tenorVoice.recurse()
                 .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(offset)
         )
-        if tenorNotes:
-            tenor = tenorNotes[0]
+        for n in tenorNotes:
+            if n.offset == offset:
+                tenor = n
+                break
 
         leadNotes: list[m21.note.Note | m21.note.Rest] = list(
             measure[PartName.Lead].recurse()
                 .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(offset)
         )
-        if leadNotes:
-            lead = leadNotes[0]
+        for n in leadNotes:
+            if n.offset == offset:
+                lead = n
+                break
 
         bariNotes: list[m21.note.Note | m21.note.Rest] = list(
             measure[PartName.Bari].recurse()
                 .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(offset)
         )
-        if bariNotes:
-            bari = bariNotes[0]
+        for n in bariNotes:
+            if n.offset == offset:
+                bari = n
+                break
 
         bassNotes: list[m21.note.Note | m21.note.Rest] = list(
             measure[PartName.Bass].recurse()
                 .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(offset)
         )
-        if bassNotes:
-            bass = bassNotes[0]
+        for n in bassNotes:
+            if n.offset == offset:
+                bass = n
+                break
 
         return FourNotes(tenor=tenor, lead=lead, bari=bari, bass=bass)
 
@@ -1818,12 +1828,9 @@ class MusicEngine:
                 'extraOctaves must be > 0; it will be "added" in the above or below direction.'
             )
 
-        output: m21.note.Note
-        octave: int | None
+        output: m21.note.Note = deepcopy(copyFrom)
+        output.lyrics = []  # don't copy the lyrics!
         if below is not None:
-            output = deepcopy(copyFrom)
-            output.lyrics = []  # don't copy the lyrics!
-
             output.pitch = m21.pitch.Pitch(name=pitchName, octave=below.pitch.octave)
             if output.pitch >= below.pitch:
                 output.pitch.octave -= 1  # type: ignore
@@ -1831,9 +1838,6 @@ class MusicEngine:
                 output.pitch.octave -= extraOctaves  # type: ignore
 
         elif above is not None:
-            output = deepcopy(copyFrom)
-            output.lyrics = []  # don't copy the lyrics!
-
             output.pitch = m21.pitch.Pitch(name=pitchName, octave=above.pitch.octave)
             if output.pitch <= above.pitch:
                 output.pitch.octave += 1  # type: ignore
