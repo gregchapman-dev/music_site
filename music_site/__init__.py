@@ -43,16 +43,18 @@ def index():
 # TODO: gM21Score: m21.stream.Score | None = None
 # TODO: gMusicXmlScore: str = ''
 
+
 FMT_TO_FILE_EXT: dict = {
     'musicxml': 'musicxml',
     'humdrum': 'krn',
     'mei': 'mei'
 }
 
-def getScore(request) -> m21.stream.Score:
+
+def getScore(req) -> m21.stream.Score:
     m21Score: m21.stream.Score
-    fmt: str = request.form.get('format', '')
-    scoreStr: str = request.form.get('score', '')
+    fmt: str = req.form.get('format', '')
+    scoreStr: str = req.form.get('score', '')
     if not scoreStr:
         print('No score to transpose')
         abort(422, 'No score to transpose')
@@ -60,7 +62,7 @@ def getScore(request) -> m21.stream.Score:
         print('Unknown format score')
         abort(422, 'Unknown format score')
 
-    if True:  # try:
+    try:
         print(f'first 100 bytes of scoreStr: {scoreStr[0:100]!r}')
         if '\r\n' in scoreStr:
             # somebody messed with my Humdrum line ends
@@ -76,9 +78,10 @@ def getScore(request) -> m21.stream.Score:
 
         return m21Score
 
-    # except Exception:
-    #     print('Score failed to parse')
-    #     abort(422, 'Score failed to parse')
+    except Exception:
+        print('Score failed to parse')
+        abort(422, 'Score failed to parse')
+
 
 def produceResultScores(m21Score: m21.stream.Score) -> dict[str, str]:
     print('producing MusicXML')
@@ -94,6 +97,7 @@ def produceResultScores(m21Score: m21.stream.Score) -> dict[str, str]:
         'humdrum': humdrum,
         'mei': mei
     }
+
 
 @app.route('/command', methods=['POST'])
 def command() -> dict:
@@ -141,7 +145,8 @@ def command() -> dict:
             arrType = ArrangementType.LowerVoices
         else:
             print(f'Invalid shopIt (invalid arrangementType specified: "{arrangementTypeStr}")')
-            abort(400, f'Invalid shopIt (invalid arrangementType specified: "{arrangementTypeStr}")')
+            abort(400,
+                f'Invalid shopIt (invalid arrangementType specified: "{arrangementTypeStr}")')
 
         m21Score: m21.stream.Score = getScore(request)
 
@@ -159,6 +164,7 @@ def command() -> dict:
 
     # print(f'first 100 bytes of humdrum: {result["humdrum"][0:100]!r}')
     return result
+
 
 @app.route('/score', methods=['POST'])
 def score() -> dict:

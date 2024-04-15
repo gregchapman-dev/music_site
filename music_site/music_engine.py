@@ -61,23 +61,37 @@ class Chord(Sequence):
         self,
         cs: m21.harmony.ChordSymbol,
     ):
-        self.sym: m21.harmony.ChordSymbol = cs
-        self.pitches: tuple[m21.pitch.Pitch, ...] = cs.pitches
-
-        # tuple[role=1..13, pitch]
+        self.sym: m21.harmony.ChordSymbol = deepcopy(cs)
+        self.pitches: tuple[m21.pitch.Pitch, ...] = tuple()
         self.roleToPitchNames: dict[int, str] = {}
+        self.preferredBassPitchName: str = ''  # may not be mentioned anywhere else in self
 
         if isinstance(self.sym, m21.harmony.NoChord):
             return
 
-        # cs.pitches have octaves, and are ordered diatonically, so they will
-        # help us figure out the difference between role=4 and role=11 (cs.getChordStep
+        self.pitches = deepcopy(self.sym.pitches)
+        pitchNames: list[str] = [p.name for p in self.sym.pitches]
+        bass: m21.pitch.Pitch = self.sym.bass()
+        if bass is not None and bass.name != self.sym.root().name:
+            # we have a specified bass note, perhaps not in the main chord
+            # Stash off it's name as the preferred bass pitchName, and
+            # recompute the chord pitches as if there was no bass specified
+            # (by setting the bass to the root).
+            self.preferredBassPitchName = bass.name
+            self.sym.bass(self.sym.root())
+            MusicEngine._updatePitches(self.sym)
+            self.pitches = deepcopy(self.sym.pitches)
+            pitchNames = [p.name for p in self.sym.pitches]
+
+        # tuple[role=1..13, pitch]
+
+        # self.sym.pitches have octaves, and are ordered diatonically, so they will
+        # help us figure out the difference between role=4 and role=11 (.getChordStep
         # won't help us at all).
-        pitchNames: list[str] = [p.name for p in cs.pitches]
         pitchesForRole: list[m21.pitch.Pitch | None] = [None] * 14
         for i in range(1, 8):
             try:
-                pitchesForRole[i] = cs.getChordStep(i)
+                pitchesForRole[i] = self.sym.getChordStep(i)
             except m21.chord.ChordException:
                 pass
 
@@ -158,13 +172,13 @@ class FourNotes(Sequence):
         return 4
 
     def __getitem__(self, idx: int | str | slice) -> t.Any:  # m21.note.Note|m21.note.Rest|None:
-        if idx == 0 or idx == PartName.Tenor:
+        if idx in (0, PartName.Tenor):
             return self.tenor
-        if idx == 1 or idx == PartName.Lead:
+        if idx in (1, PartName.Lead):
             return self.lead
-        if idx == 2 or idx == PartName.Bari:
+        if idx in (2, PartName.Bari):
             return self.bari
-        if idx == 3 or idx == PartName.Bass:
+        if idx in (3, PartName.Bass):
             return self.bass
 
         # we don't support slicing (or out-of-range idx)
@@ -231,17 +245,17 @@ class FourVoices(Sequence):
         return 4
 
     def __getitem__(self, idx: int | str | slice) -> t.Any:  # m21.stream.Voice:
-        if idx == 0 or idx == PartName.Tenor:
+        if idx in (0, PartName.Tenor):
             return self.tenor
-        if idx == 1 or idx == PartName.Lead:
+        if idx in (1, PartName.Lead):
             return self.lead
-        if idx == 2 or idx == PartName.Bari:
+        if idx in (2, PartName.Bari):
             return self.bari
-        if idx == 3 or idx == PartName.Bass:
+        if idx in (3, PartName.Bass):
             return self.bass
 
         # we don't support slicing (or out-of-range idx)
-        raise IndexError()
+        raise IndexError(idx)
 
 
 class VocalRange:
@@ -395,7 +409,7 @@ class MusicEngine:
                     newData: str | bytes = MusicEngine._extractContents(f, fmt)
                     if not newData:
                         # will turn into abort(422, 'Unprocessable music score')
-                        raise Exception
+                        raise MusicEngineException
                     fileData = newData
                 pass
             else:
@@ -499,8 +513,8 @@ class MusicEngine:
         # key of G# major and have 8 sharps (or worse).
         keySigs: list[m21.key.KeySignature] = list(
             score.recurse()
-                .getElementsByClass(m21.key.KeySignature)
-                .getElementsByOffsetInHierarchy(0.0)
+            .getElementsByClass(m21.key.KeySignature)
+            .getElementsByOffsetInHierarchy(0.0)
         )
 
         majorKey: str = 'C'
@@ -541,7 +555,9 @@ class MusicEngine:
             interval = m21.interval.Interval(keyPitch, newKeyPitch)
             return interval
 
-        raise Exception('Unexpected failure to find a reasonable key to transpose into')
+        raise MusicEngineException(
+            'Unexpected failure to find a reasonable key to transpose into'
+        )
 
     @staticmethod
     def transposeInPlace(score: m21.stream.Score, semitones: int):
@@ -585,14 +601,19 @@ class MusicEngine:
                 lastChord = cs
                 continue
 
+            if t.TYPE_CHECKING:
+                assert lastChord is not None
+
             # last/thisChordMeas might be Voices; if so I hope they are both
             # at offset 0 in their respective Measures.
-            lastChordMeas: m21.stream.Stream = piece.containerInHierarchy(
+            lastChordMeas: m21.stream.Stream | None = piece.containerInHierarchy(
                 lastChord, setActiveSite=False)
-            lastChordOffsetInMeas = lastChord.getOffsetInHierarchy(lastChordMeas)
-            thisChordMeas: m21.stream.Stream = piece.containerInHierarchy(
+            thisChordMeas: m21.stream.Stream | None = piece.containerInHierarchy(
                 cs, setActiveSite=False)
-            thisChordOffsetInMeas = cs.getOffsetInHierarchy(thisChordMeas)
+
+            if t.TYPE_CHECKING:
+                assert lastChordMeas is not None
+                assert thisChordMeas is not None
 
             qlDiff = pf.elementOffset(cs) - pf.elementOffset(lastChord)
             if lastChordMeas is thisChordMeas:
@@ -601,6 +622,7 @@ class MusicEngine:
                 # split qlDiff into two parts:
                 # 1. the available room in lastChordMeas, and
                 # 2. the remainder (which will land in thisChordMeas)
+                thisChordOffsetInMeas: OffsetQL = cs.getOffsetInHierarchy(thisChordMeas)
                 qlDiff1: OffsetQL = qlDiff - thisChordOffsetInMeas
                 qlDiff2: OffsetQL = qlDiff - qlDiff1
                 lastChord.duration.quarterLength = qlDiff1
@@ -611,6 +633,8 @@ class MusicEngine:
             lastChord = cs
 
         # on exit from the loop, all but lastChord has been handled
+        if t.TYPE_CHECKING:
+            assert lastChord is not None
         qlDiff = pf.highestTime - pf.elementOffset(lastChord)
         if lastChordMeas is thisChordMeas:
             lastChord.duration.quarterLength = qlDiff
@@ -619,12 +643,16 @@ class MusicEngine:
             # 1. the available room in lastChordMeas, and
             # 2. the remainder (which will land in thisChordMeas)
             lastChordMeas = piece.containerInHierarchy(lastChord, setActiveSite=False)
+            if t.TYPE_CHECKING:
+                assert lastChordMeas is not None
             qlDiff1 = qlDiff - lastChord.getOffsetInHierarchy(lastChordMeas)
             qlDiff2 = qlDiff - qlDiff1
             lastChord.duration.quarterLength = qlDiff1
             if qlDiff2 != 0:
-                lastChord2: m21.harmony.ChordSymbol = deepcopy(lastChord)
+                lastChord2 = deepcopy(lastChord)
                 lastChord2.duration.quarterLength = qlDiff2
+                if t.TYPE_CHECKING:
+                    assert thisChordMeas is not None
                 thisChordMeas.insert(0, lastChord2)
 
     @staticmethod
@@ -770,8 +798,8 @@ class MusicEngine:
             # in mMeas.recurse(). Just one of each type though.
             sigs: list[m21.key.KeySignature | m21.meter.TimeSignature] = list(
                 mMeas.recurse()
-                    .getElementsByClass([m21.key.KeySignature, m21.meter.TimeSignature])
-                    .getElementsByOffsetInHierarchy(0.0)
+                .getElementsByClass([m21.key.KeySignature, m21.meter.TimeSignature])
+                .getElementsByOffsetInHierarchy(0.0)
             )
 
             timeSigFound: bool = False
@@ -822,7 +850,7 @@ class MusicEngine:
             for cs in cMeas.recurse().getElementsByClass(m21.harmony.ChordSymbol):
                 if cs.chordKind == 'augmented-ninth':
                     # Finale and music21 don't know what 'augmented-ninth' is.
-                    # The example I found looks like it should be augmented-dominant-night
+                    # The example I found looks like it should be augmented-dominant-ninth
                     # (i.e. with dominant 7th), not augmented-major-ninth (i.e. with
                     # major 7th).  That is to say, 1-3-#5-b7-9, not 1-3-#5-7-9.
                     # We update it in place before deepcopying, so it is updated
@@ -910,7 +938,6 @@ class MusicEngine:
             return
 
         # create figured bass scale with root as scale
-        scaleInitTuple = (self._overrides['root'].name, 'major')
         fbScale = realizerScale.FiguredBassScale(self._overrides['root'], 'major')
 
         # render in the 3rd octave by default
@@ -1024,7 +1051,7 @@ class MusicEngine:
                     # it positioned just for the one voice.
                     el.stepShift = 0  # I wish setting to 0 did something...
                     rest: m21.note.Rest = deepcopy(el)
-                    if partName == PartName.Tenor or partName == PartName.Bari:
+                    if partName in (PartName.Tenor, PartName.Bari):
                         rest.style.hideObjectOnPrint = True
                         rest.stepShift = 0
                     currMeasure[partName].insert(offset, rest)
@@ -1035,7 +1062,6 @@ class MusicEngine:
 
                 # it's a Note
                 leadNote: m21.note.Note = el
-                ql: OffsetQL = leadNote.quarterLength
                 chord: Chord | None = (
                     MusicEngine.findChordOverlappingOffset(chordMeas, offset)
                 )
@@ -1324,7 +1350,7 @@ class MusicEngine:
                     # Ugh. Lead must be really low. Push the lead up a 4th to
                     # the next higher root, and take the lead note yourself.
                     bass = deepcopy(lead)  # fifth, assume it's in bass range
-                    bass.lyrics=[]
+                    bass.lyrics = []
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         root,
                         copyFrom=lead,
@@ -1341,11 +1367,12 @@ class MusicEngine:
                     'harmonizePillarChordBass: lead note not in pillar chord'
                 )
 
-        elif (roles == (1, 3, 5, 7)
-                or roles == (1, 3, 5, 6)
-                or roles == (3, 5, 7, 9)
-                or roles == (5, 7, 9, 11)
-                or roles == (7, 9, 11, 13)):
+        elif roles in (
+                (1, 3, 5, 7),
+                (1, 3, 5, 6),
+                (3, 5, 7, 9),
+                (5, 7, 9, 11),
+                (7, 9, 11, 13)):
             if roles == (1, 3, 5, 7):
                 # 7th chord: no doubling the root.
                 root = chPitch[1]
@@ -1469,32 +1496,33 @@ class MusicEngine:
         elif roles == (1, 5, 7, 9):
             # 9th chord with root
             return
-            raise MusicEngineException(
-                f'Don\'t know how to harmonize this chord: {roles}'
-            )
+            # raise MusicEngineException(
+            #     f'Don\'t know how to harmonize this chord: {roles}'
+            # )
 
         elif roles == (1, 7, 9, 11):
             # 11th chord with root in lead
             return
-            raise MusicEngineException(
-                f'Don\'t know how to harmonize this chord: {roles}'
-            )
+            # raise MusicEngineException(
+            #     f'Don\'t know how to harmonize this chord: {roles}'
+            # )
 
         elif roles == (3, 7, 9, 11):
             # 11th chord with third in lead
             return
-            raise MusicEngineException(
-                f'Don\'t know how to harmonize this chord: {roles}'
-            )
+            # raise MusicEngineException(
+            #     f'Don\'t know how to harmonize this chord: {roles}'
+            # )
 
-        elif (roles == (1, 9, 11, 13)
-                or roles == (3, 9, 11, 13)
-                or roles == (5, 9, 11, 13)):
+        elif roles in (
+                (1, 9, 11, 13),
+                (3, 9, 11, 13),
+                (5, 9, 11, 13)):
             # 13th chord with 1, 3, or 5 in lead
             return
-            raise MusicEngineException(
-                f'Don\'t know how to harmonize this chord: {roles}'
-            )
+            # raise MusicEngineException(
+            #     f'Don\'t know how to harmonize this chord: {roles}'
+            # )
 
         else:
             raise MusicEngineException(
@@ -1540,7 +1568,7 @@ class MusicEngine:
         availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
 
         if t.TYPE_CHECKING:
-            assert(isinstance(lead, m21.note.Note))
+            assert isinstance(lead, m21.note.Note)
 
         # First attempt: Just go for what's available, starting with the available
         # notes above the lead (preferring closer-to-the-lead notes), then the
@@ -1618,9 +1646,18 @@ class MusicEngine:
 
         # bari gets whatever is left over (we can improve voice leading by trading notes,
         # obviously, but for now this is it).
-        bari: m21.note.Note = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor)
+        bari: m21.note.Note = MusicEngine.makeNote(
+            availablePitchNames[0],
+            copyFrom=lead,
+            below=tenor
+        )
         if bariPartRange.isTooHigh(bari.pitch):
-            bari = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, below=tenor, extraOctaves=1)
+            bari = MusicEngine.makeNote(
+                availablePitchNames[0],
+                copyFrom=lead,
+                below=tenor,
+                extraOctaves=1
+            )
 
         if bari.pitch < bass.pitch:
             # bari is below the bass, that's not right.  Trade pitches with bass.
@@ -1639,9 +1676,9 @@ class MusicEngine:
             # can we trade with tenor?  (switching octaves to stay in range if necessary)
             bari, tenor = tenor, bari
             if bariPartRange.isTooHigh(bari.pitch):
-                bari.pitch.octave -= 1
+                bari.pitch.octave -= 1  # type: ignore
             if tenorPartRange.isTooLow(tenor.pitch):
-                tenor.pitch.octave += 1
+                tenor.pitch.octave += 1  # type: ignore
 
         if bariPartRange.isOutOfRange(bari.pitch):
             raise MusicEngineException('failed to find a bari note for a pillar chord')
@@ -1681,7 +1718,7 @@ class MusicEngine:
         tenorVoice: m21.stream.Voice = measure[PartName.Tenor]
         tenorNotes: list[m21.note.Note | m21.note.Rest] = list(
             tenorVoice.recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in tenorNotes:
             if n.offset == offset:
@@ -1690,7 +1727,7 @@ class MusicEngine:
 
         leadNotes: list[m21.note.Note | m21.note.Rest] = list(
             measure[PartName.Lead].recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in leadNotes:
             if n.offset == offset:
@@ -1699,7 +1736,7 @@ class MusicEngine:
 
         bariNotes: list[m21.note.Note | m21.note.Rest] = list(
             measure[PartName.Bari].recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in bariNotes:
             if n.offset == offset:
@@ -1708,7 +1745,7 @@ class MusicEngine:
 
         bassNotes: list[m21.note.Note | m21.note.Rest] = list(
             measure[PartName.Bass].recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in bassNotes:
             if n.offset == offset:
@@ -1774,36 +1811,36 @@ class MusicEngine:
 
         tenorNotes = list(
             measure[PartName.Tenor].recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(
-                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByOffsetInHierarchy(
+                offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
         )
         if tenorNotes:
             tenor = tenorNotes[-1]
 
         leadNotes = list(
             measure[PartName.Lead].recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(
-                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByOffsetInHierarchy(
+                offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
         )
         if leadNotes:
             lead = leadNotes[-1]
 
         bariNotes = list(
             measure[PartName.Bari].recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(
-                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByOffsetInHierarchy(
+                offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
         )
         if bariNotes:
             bari = bariNotes[-1]
 
         bassNotes = list(
             measure[PartName.Bass].recurse()
-                .getElementsByClass([m21.note.Note, m21.note.Rest])
-                .getElementsByOffsetInHierarchy(
-                    offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
+            .getElementsByClass([m21.note.Note, m21.note.Rest])
+            .getElementsByOffsetInHierarchy(
+                offsetStart=0, offsetEnd=offset, includeEndBoundary=False)
         )
         if bassNotes:
             bass = bassNotes[-1]
@@ -1952,7 +1989,7 @@ class MusicEngine:
 
         melodyPart: m21.stream.Part = parts[0]
         for meas in list(melodyPart[m21.stream.Measure]):
-            voices: list[m21.stream.Voice] =  list(meas[m21.stream.Voice])
+            voices: list[m21.stream.Voice] = list(meas[m21.stream.Voice])
             # 0 voices or 1 voice is fine (0 voices means the measure is the "voice")
             if len(voices) > 1:
                 # remove the extraneous voices (assume first voice is the melody)
@@ -1961,7 +1998,7 @@ class MusicEngine:
 
         chordPart: m21.stream.Part | None = None
         for part in parts:
-            for chordSymbol in part[m21.harmony.ChordSymbol]:
+            for _cs in part[m21.harmony.ChordSymbol]:
                 chordPart = part
                 break
 
