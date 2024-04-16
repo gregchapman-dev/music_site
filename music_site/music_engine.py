@@ -1495,6 +1495,10 @@ class MusicEngine:
 
         elif roles == (1, 5, 7, 9):
             # 9th chord with root
+            space: m21.note.Rest = m21.note.Rest()
+            space.quarterLength = lead.quarterLength
+            space.style.hideObjectOnPrint = True
+            measure[PartName.Bass].insert(offset, space)
             return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
@@ -1502,6 +1506,10 @@ class MusicEngine:
 
         elif roles == (1, 7, 9, 11):
             # 11th chord with root in lead
+            space = m21.note.Rest()
+            space.quarterLength = lead.quarterLength
+            space.style.hideObjectOnPrint = True
+            measure[PartName.Bass].insert(offset, space)
             return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
@@ -1509,6 +1517,10 @@ class MusicEngine:
 
         elif roles == (3, 7, 9, 11):
             # 11th chord with third in lead
+            space = m21.note.Rest()
+            space.quarterLength = lead.quarterLength
+            space.style.hideObjectOnPrint = True
+            measure[PartName.Bass].insert(offset, space)
             return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
@@ -1519,12 +1531,20 @@ class MusicEngine:
                 (3, 9, 11, 13),
                 (5, 9, 11, 13)):
             # 13th chord with 1, 3, or 5 in lead
+            space = m21.note.Rest()
+            space.quarterLength = lead.quarterLength
+            space.style.hideObjectOnPrint = True
+            measure[PartName.Bass].insert(offset, space)
             return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
             # )
 
         else:
+            space = m21.note.Rest()
+            space.quarterLength = lead.quarterLength
+            space.style.hideObjectOnPrint = True
+            measure[PartName.Bass].insert(offset, space)
             return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
@@ -1568,6 +1588,10 @@ class MusicEngine:
         tenor: m21.note.Note | None = None
 
         if bass is None:
+            space: m21.note.Rest = m21.note.Rest()
+            space.quarterLength = lead.quarterLength
+            space.style.hideObjectOnPrint = True
+            measure[PartName.Tenor].insert(offset, space)
             return
 
         availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
@@ -1647,6 +1671,10 @@ class MusicEngine:
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
         bass: m21.note.Note = thisFourNotes[PartName.Bass]
         if bass is None:
+            space: m21.note.Rest = m21.note.Rest()
+            space.quarterLength = lead.quarterLength
+            space.style.hideObjectOnPrint = True
+            measure[PartName.Bari].insert(offset, space)
             return
 
         availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
