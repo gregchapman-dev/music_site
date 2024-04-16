@@ -436,6 +436,15 @@ class MusicEngine:
         return output
 
     @staticmethod
+    def copyNote(note: m21.note.Note) -> m21.note.Note:
+        output: m21.note.Note = deepcopy(note)
+        output.lyrics = []
+        output._tie = None
+        if output.pitch.accidental is not None:
+            output.pitch.accidental.displayStatus = None
+        return output
+
+    @staticmethod
     def _extractContents(f: zipfile.ZipFile,
                          dataFormat: str = 'musicxml') -> str | bytes:
         # stolen verbatim from music21.converter (where it is only applied to files,
@@ -656,6 +665,12 @@ class MusicEngine:
                 thisChordMeas.insert(0, lastChord2)
 
     @staticmethod
+    def removeAllBeams(leadSheet: m21.stream.Score):
+        # in place
+        for nc in leadSheet[m21.note.NotRest]:
+            nc.beams = m21.beam.Beams()
+
+    @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
         arrType: ArrangementType
@@ -670,12 +685,18 @@ class MusicEngine:
 
         # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
         # duration == 0 or 1, which doesn't help us find the ChordSymbol that has a
-        # time range that contains a particular offset.
+        # time range that contains a particular offset.  We have our own copy of this,
+        # with an added "bugfix" that splits chordsyms across barlines, so the new
+        # chordsym duration doesn't push the barline out.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
 
         # more fixups to the leadsheet score
         M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
-        M21Utilities.fixupBadBeams(leadSheet, inPlace=True)
+
+        # remove all beams (because the beams get bogus in the partially filled-in
+        # harmony parts, causing occasional export crashes).  We will call
+        # m21.stream.makeBeams when necessary, to make valid beams again.
+        MusicEngine.removeAllBeams(leadSheet)
 
         melody: m21.stream.Part | None
         chords: m21.stream.Part | None
@@ -714,9 +735,14 @@ class MusicEngine:
         # into the appropriate Measures in the Score.
 
 
-        shopped: m21.stream.Score
+        shopped: m21.stream.Score = m21.stream.Score()
         shoppedVoices: list[FourVoices]
-        shopped, shoppedVoices = MusicEngine.processPillarChordsLead(arrType, melody, chords)
+        shopped, shoppedVoices = MusicEngine.processPillarChordsLead(
+            arrType,
+            melody,
+            chords,
+            leadSheet.metadata
+        )
 
         # Then we will harmonize the three harmony parts, one at a time all the way
         # through, harmonizing only the melody notes that are in the specified chord
@@ -739,17 +765,33 @@ class MusicEngine:
                 if hasattr(rest, 'shopit_isPlaceHolder'):
                     bbMeas.remove(rest)
 
+        # And put regularized beams back in
+        for part in shopped.parts:
+            m21.stream.makeNotation.makeBeams(part, inPlace=True, setStemDirections=False)
+
         return shopped
 
     @staticmethod
     def processPillarChordsLead(
         arrType: ArrangementType,
         melody: m21.stream.Part,
-        chords: m21.stream.Part
+        chords: m21.stream.Part,
+        metadata: m21.metadata.Metadata
     ) -> tuple[m21.stream.Score, list[FourVoices]]:
         # initial empty shoppedVoices and shopped (Score)
         shoppedVoices: list[FourVoices] = []
         shopped: m21.stream.Score = m21.stream.Score()
+        shopped.metadata = deepcopy(metadata)
+        if shopped.metadata.title:
+            if arrType == ArrangementType.UpperVoices:
+                shopped.metadata.title += ' (Upper Voices)'
+            elif arrType == ArrangementType.LowerVoices:
+                shopped.metadata.title += ' (Lower Voices)'
+        elif shopped.metadata.movementName:
+            if arrType == ArrangementType.UpperVoices:
+                shopped.metadata.movementName += ' (Upper Voices)'
+            elif arrType == ArrangementType.LowerVoices:
+                shopped.metadata.movementName += ' (Lower Voices)'
 
         # Set up the initial shopped Score with two Parts: Tenor/Lead and Bari/Bass
         tlStaff: m21.stream.Part = m21.stream.Part()
@@ -1180,8 +1222,7 @@ class MusicEngine:
                 useKeySignature=True,
                 searchKeySignatureByContext=True,  # current keysig might not be in this voice
                 cautionaryPitchClass=True,   # don't hide accidental for different octave
-                overrideStatus=True,         # because we did a deepcopy of lead note which
-                                             # already had displayStatus set
+                overrideStatus=True,         # because we may have left displayStatus set wrong
                 tiePitchSet=tiedPitchNames,  # tied across barline needs no repeated accidental
                 inPlace=True
             )
@@ -1334,8 +1375,7 @@ class MusicEngine:
                     bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
                         # still too low, just sing the same note (root) as the lead
-                        bass = deepcopy(lead)
-                        bass.lyrics = []
+                        bass = MusicEngine.copyNote(lead)
 
             elif lead.pitch.name == third:
                 # Lead is on third, take root a 10th below
@@ -1353,8 +1393,7 @@ class MusicEngine:
                 if partRange.isTooLow(bass.pitch):
                     # Ugh. Lead must be really low. Push the lead up a 4th to
                     # the next higher root, and take the lead note yourself.
-                    bass = deepcopy(lead)  # fifth, assume it's in bass range
-                    bass.lyrics = []
+                    bass = MusicEngine.copyNote(lead)  # fifth, assume it's in bass range
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         root,
                         copyFrom=lead,
@@ -1412,8 +1451,7 @@ class MusicEngine:
                 # put bass on fifth below lead, or raise lead to fifth and take lead's root)
                 bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
-                    bass = deepcopy(lead)  # assume it's in bass range
-                    bass.lyrics = []
+                    bass = MusicEngine.copyNote(lead)  # assume it's in bass range
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         fifth,
                         copyFrom=lead,
@@ -1460,8 +1498,7 @@ class MusicEngine:
                     bass = MusicEngine.makeNote(sixth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
                         # still too low, just sing the same note (root) as the lead
-                        bass = deepcopy(lead)
-                        bass.lyrics = []
+                        bass = MusicEngine.copyNote(lead)
 
             elif lead.pitch.name == third:
                 # Lead is on third, take root a 10th below
@@ -1479,8 +1516,7 @@ class MusicEngine:
                 if partRange.isTooLow(bass.pitch):
                     # Ugh. Lead must be really low. Push the lead up a 4th to
                     # the next higher root, and take the lead note yourself.
-                    bass = deepcopy(lead)  # sixth, assume it's in bass range
-                    bass.lyrics = []
+                    bass = MusicEngine.copyNote(lead)  # sixth, assume it's in bass range
                     lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
                         root,
                         copyFrom=lead,
@@ -1700,8 +1736,7 @@ class MusicEngine:
 
         if bari.pitch < bass.pitch:
             # bari is below the bass, that's not right.  Trade pitches with bass.
-            bari = deepcopy(bass)
-            bari.lyrics = []
+            bari = MusicEngine.copyNote(bass)
             bass = MusicEngine.makeAndInsertNote(
                 availablePitchNames[0],
                 copyFrom=bass,
@@ -1912,8 +1947,7 @@ class MusicEngine:
                 'extraOctaves must be > 0; it will be "added" in the above or below direction.'
             )
 
-        output: m21.note.Note = deepcopy(copyFrom)
-        output.lyrics = []  # don't copy the lyrics!
+        output: m21.note.Note = MusicEngine.copyNote(copyFrom)
         if below is not None:
             output.pitch = m21.pitch.Pitch(name=pitchName, octave=below.pitch.octave)
             if output.pitch >= below.pitch:
