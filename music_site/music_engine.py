@@ -1061,6 +1061,10 @@ class MusicEngine:
                     continue
 
                 # it's a Note
+                if el.duration.isGrace:
+                    continue
+
+                # it's a non-grace Note
                 leadNote: m21.note.Note = el
                 chord: Chord | None = (
                     MusicEngine.findChordOverlappingOffset(chordMeas, offset)
@@ -1587,7 +1591,7 @@ class MusicEngine:
         bass: m21.note.Note = thisFourNotes[PartName.Bass]
         tenor: m21.note.Note | None = None
 
-        if bass is None:
+        if not isinstance(bass, m21.note.Note):
             space: m21.note.Rest = m21.note.Rest()
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
@@ -1670,7 +1674,7 @@ class MusicEngine:
         tenor: m21.note.Note = thisFourNotes[PartName.Tenor]
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
         bass: m21.note.Note = thisFourNotes[PartName.Bass]
-        if bass is None:
+        if not isinstance(bass, m21.note.Note):
             space: m21.note.Rest = m21.note.Rest()
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
@@ -1756,6 +1760,8 @@ class MusicEngine:
             .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in tenorNotes:
+            if n.duration.isGrace:
+                continue
             if n.offset == offset:
                 tenor = n
                 break
@@ -1765,6 +1771,8 @@ class MusicEngine:
             .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in leadNotes:
+            if n.duration.isGrace:
+                continue
             if n.offset == offset:
                 lead = n
                 break
@@ -1774,6 +1782,8 @@ class MusicEngine:
             .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in bariNotes:
+            if n.duration.isGrace:
+                continue
             if n.offset == offset:
                 bari = n
                 break
@@ -1783,6 +1793,8 @@ class MusicEngine:
             .getElementsByClass([m21.note.Note, m21.note.Rest])
         )
         for n in bassNotes:
+            if n.duration.isGrace:
+                continue
             if n.offset == offset:
                 bass = n
                 break
