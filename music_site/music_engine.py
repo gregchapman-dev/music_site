@@ -1266,7 +1266,7 @@ class MusicEngine:
             output[5] = allOfThem[5]
             return output
 
-        return output
+        return copy(allOfThem)
 
     @staticmethod
     def getChordPitchNames(
@@ -1525,9 +1525,10 @@ class MusicEngine:
             # )
 
         else:
-            raise MusicEngineException(
-                f'Don\'t know how to harmonize this chord: {roles}'
-            )
+            return
+            # raise MusicEngineException(
+            #     f'Don\'t know how to harmonize this chord: {roles}'
+            # )
 
 
         # Specify stem directions explicitly
@@ -1563,7 +1564,11 @@ class MusicEngine:
         partRange: VocalRange = PART_RANGES[arrType][PartName.Tenor]
 
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
+        bass: m21.note.Note = thisFourNotes[PartName.Bass]
         tenor: m21.note.Note | None = None
+
+        if bass is None:
+            return
 
         availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
 
@@ -1641,6 +1646,8 @@ class MusicEngine:
         tenor: m21.note.Note = thisFourNotes[PartName.Tenor]
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
         bass: m21.note.Note = thisFourNotes[PartName.Bass]
+        if bass is None:
+            return
 
         availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
 

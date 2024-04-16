@@ -37,30 +37,30 @@ def runTheTest(inputPath: Path) -> bool:
     )
 
     # export scores back to MEI (without any makeNotation fixups)
-    print('writing both shopped scores to MEI')
-    meiLowerPath = Path(tempfile.gettempdir())
-    meiLowerPath /= (inputPath.stem + '_Lower')
-    meiLowerPath = meiLowerPath.with_suffix('.mei')
-
-    meiUpperPath = Path(tempfile.gettempdir())
-    meiUpperPath /= (inputPath.stem + '_Upper')
-    meiUpperPath = meiUpperPath.with_suffix('.mei')
-
-    lowerShop.write(fp=meiLowerPath, fmt='mei', makeNotation=False)
-    upperShop.write(fp=meiUpperPath, fmt='mei', makeNotation=False)
+#     print('writing both shopped scores to MEI')
+#     meiLowerPath = Path(tempfile.gettempdir())
+#     meiLowerPath /= (inputPath.stem + '_Lower')
+#     meiLowerPath = meiLowerPath.with_suffix('.mei')
+#
+#     meiUpperPath = Path(tempfile.gettempdir())
+#     meiUpperPath /= (inputPath.stem + '_Upper')
+#     meiUpperPath = meiUpperPath.with_suffix('.mei')
+#
+#     lowerShop.write(fp=meiLowerPath, fmt='mei', makeNotation=False)
+#     upperShop.write(fp=meiUpperPath, fmt='mei', makeNotation=False)
 
     # export scores back to Humdrum (without any makeNotation fixups)
-    print('writing both shopped scores to Humdrum')
-    krnLowerPath = Path(tempfile.gettempdir())
-    krnLowerPath /= (inputPath.stem + '_Lower')
-    krnLowerPath = krnLowerPath.with_suffix('.krn')
-
-    krnUpperPath = Path(tempfile.gettempdir())
-    krnUpperPath /= (inputPath.stem + '_Upper')
-    krnUpperPath = krnUpperPath.with_suffix('.krn')
-
-    lowerShop.write(fp=krnLowerPath, fmt='humdrum', makeNotation=False)
-    upperShop.write(fp=krnUpperPath, fmt='humdrum', makeNotation=False)
+#     print('writing both shopped scores to Humdrum')
+#     krnLowerPath = Path(tempfile.gettempdir())
+#     krnLowerPath /= (inputPath.stem + '_Lower')
+#     krnLowerPath = krnLowerPath.with_suffix('.krn')
+#
+#     krnUpperPath = Path(tempfile.gettempdir())
+#     krnUpperPath /= (inputPath.stem + '_Upper')
+#     krnUpperPath = krnUpperPath.with_suffix('.krn')
+#
+#     lowerShop.write(fp=krnLowerPath, fmt='humdrum', makeNotation=False)
+#     upperShop.write(fp=krnUpperPath, fmt='humdrum', makeNotation=False)
 
     # show scores via MusicXML (without any makeNotation fixups)
     print('displaying both shopped scores (via MusicXML/Musescore)')
