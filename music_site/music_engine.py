@@ -288,7 +288,7 @@ PART_RANGES: dict[ArrangementType, dict[PartName, VocalRange]] = {
         PartName.Bass: VocalRange(m21.pitch.Pitch('F2'), m21.pitch.Pitch('B-3')),
     },
     ArrangementType.UpperVoices: {
-        PartName.Tenor: VocalRange(m21.pitch.Pitch('G4'), m21.pitch.Pitch('F5')),
+        PartName.Tenor: VocalRange(m21.pitch.Pitch('F#4'), m21.pitch.Pitch('F5')),
         PartName.Lead: VocalRange(m21.pitch.Pitch('A3'), m21.pitch.Pitch('C5')),
         PartName.Bari: VocalRange(m21.pitch.Pitch('A3'), m21.pitch.Pitch('C5')),
         PartName.Bass: VocalRange(m21.pitch.Pitch('E-3'), m21.pitch.Pitch('D4')),
