@@ -916,7 +916,11 @@ class MusicEngine:
                 if el in measureStuff:
                     continue
                 offset = el.getOffsetInHierarchy(mMeas)
-                el = deepcopy(el)
+                if isinstance(el, m21.chord.Chord) and not isinstance(el, m21.harmony.ChordSymbol):
+                    # Don't put a chord in the melody; put the top note from the chord instead
+                    el = deepcopy(el.notes[-1])
+                else:
+                    el = deepcopy(el)
                 if isinstance(el, m21.note.NotRest):
                     el.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Lead]
                 lead.insert(offset, el)
