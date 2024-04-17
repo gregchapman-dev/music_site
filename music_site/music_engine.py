@@ -1761,10 +1761,16 @@ class MusicEngine:
             badBari: m21.note.Note = bari
             bari = MusicEngine.copyNote(tenor)
             tenor = MusicEngine.copyNote(badBari)
+
             if bariPartRange.isTooHigh(bari.pitch):
                 bari.pitch.octave -= 1  # type: ignore
+            elif bariPartRange.isTooLow(bari.pitch):
+                bari.pitch.octave += 1  # type: ignore
+
             if tenorPartRange.isTooLow(tenor.pitch):
                 tenor.pitch.octave += 1  # type: ignore
+            elif tenorPartRange.isTooHigh(tenor.pitch):
+                tenor.pitch.octave -= 1  # type: ignore
 
         if bariPartRange.isOutOfRange(bari.pitch):
             raise MusicEngineException('failed to find a bari note for a pillar chord')
