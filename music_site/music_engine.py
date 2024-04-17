@@ -62,15 +62,13 @@ class Chord(Sequence):
         cs: m21.harmony.ChordSymbol,
     ):
         self.sym: m21.harmony.ChordSymbol = deepcopy(cs)
-        self.pitches: tuple[m21.pitch.Pitch, ...] = tuple()
+        self.pitches: list[m21.pitch.Pitch, ...] = []
         self.roleToPitchNames: dict[int, str] = {}
         self.preferredBassPitchName: str = ''  # may not be mentioned anywhere else in self
 
         if isinstance(self.sym, m21.harmony.NoChord):
             return
 
-        self.pitches = deepcopy(self.sym.pitches)
-        pitchNames: list[str] = [p.name for p in self.sym.pitches]
         bass: m21.pitch.Pitch = self.sym.bass()
         if bass is not None and bass.name != self.sym.root().name:
             # we have a specified bass note, perhaps not in the main chord
@@ -80,8 +78,6 @@ class Chord(Sequence):
             self.preferredBassPitchName = bass.name
             self.sym.bass(self.sym.root())
             MusicEngine._updatePitches(self.sym)
-            self.pitches = deepcopy(self.sym.pitches)
-            pitchNames = [p.name for p in self.sym.pitches]
 
         # tuple[role=1..13, pitch]
 
@@ -94,6 +90,16 @@ class Chord(Sequence):
                 pitchesForRole[i] = self.sym.getChordStep(i)
             except m21.chord.ChordException:
                 pass
+
+        # Note that self.pitches may not contain all of cs.pitches, since
+        # if cs.pitches includes, say, a flat 9th and a sharp 9th, we'll
+        # only pick up one of them via getChordStep().  That's OK for
+        # our purposes.
+        for p in pitchesForRole:
+            if p is not None:
+                self.pitches.append(p)
+
+        pitchNames: list[str] = [p.name for p in self.pitches]
 
         # loop over pitches and pitchesForRole, moving pitchesForRole elements to match pitches
         role: int = 1
@@ -1512,7 +1518,7 @@ class MusicEngine:
                     bass = MusicEngine.makeNote(sixth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
                         # Fine, take the root just below the lead's third
-                        bass = MusicEngine.makeNote(third, copyFrom=lead, below=lead)
+                        bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
             elif lead.pitch.name == sixth:
                 # Lead is on sixth, take root below
