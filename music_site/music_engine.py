@@ -1388,8 +1388,8 @@ class MusicEngine:
                     # Take fifth (below the lead's third)
                     bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
-                        # Fine, take the root just below the lead's third
-                        bass = MusicEngine.makeNote(third, copyFrom=lead, below=lead)
+                        # Fine, take the root just below the lead
+                        bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
             elif lead.pitch.name == fifth:
                 # Lead is on fifth, take root below
