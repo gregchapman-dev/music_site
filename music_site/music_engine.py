@@ -1752,7 +1752,9 @@ class MusicEngine:
 
         if bariPartRange.isOutOfRange(bari.pitch):
             # can we trade with tenor?  (switching octaves to stay in range if necessary)
-            bari, tenor = tenor, bari
+            badBari: m21.note.Note = bari
+            bari = MusicEngine.copyNote(tenor)
+            tenor = MusicEngine.copyNote(badBari)
             if bariPartRange.isTooHigh(bari.pitch):
                 bari.pitch.octave -= 1  # type: ignore
             if tenorPartRange.isTooLow(tenor.pitch):
