@@ -62,7 +62,7 @@ class Chord(Sequence):
         cs: m21.harmony.ChordSymbol,
     ):
         self.sym: m21.harmony.ChordSymbol = deepcopy(cs)
-        self.pitches: list[m21.pitch.Pitch, ...] = []
+        self.pitches: list[m21.pitch.Pitch] = []
         self.roleToPitchNames: dict[int, str] = {}
         self.preferredBassPitchName: str = ''  # may not be mentioned anywhere else in self
 
@@ -677,6 +677,16 @@ class MusicEngine:
             nc.beams = m21.beam.Beams()
 
     @staticmethod
+    def removeAllDirections(leadSheet: m21.stream.Score):
+        for d in leadSheet[(
+            m21.expressions.TextExpression,
+            m21.tempo.TempoIndication,
+            m21.dynamics.Dynamic,
+            m21.dynamics.DynamicWedge
+        )]:
+            leadSheet.remove(d, recurse=True)
+
+    @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
         arrType: ArrangementType
@@ -703,6 +713,9 @@ class MusicEngine:
         # harmony parts, causing occasional export crashes).  We will call
         # m21.stream.makeBeams when necessary, to make valid beams again.
         MusicEngine.removeAllBeams(leadSheet)
+
+        # Most directions, dynamics, metronome marks, etc, will no longer apply.
+        MusicEngine.removeAllDirections(leadSheet)
 
         melody: m21.stream.Part | None
         chords: m21.stream.Part | None
