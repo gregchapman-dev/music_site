@@ -64,9 +64,9 @@ def runTheTest(inputPath: Path) -> bool:
 
     # show scores via MusicXML (without any makeNotation fixups)
     print('displaying both shopped scores (via MusicXML/Musescore)')
+    score1.show('musicxml.pdf', makeNotation=False)
     lowerShop.show('musicxml.pdf', makeNotation=False)
     upperShop.show('musicxml.pdf', makeNotation=False)
-    score1.show('musicxml.pdf', makeNotation=False)
 
     return True
 

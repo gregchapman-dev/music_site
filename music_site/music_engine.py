@@ -537,8 +537,11 @@ class MusicEngine:
             majorKey = MusicEngine._SHARPS_TO_MAJOR_KEYS[keySigs[0].sharps]
 
         keyPitch = m21.pitch.Pitch(majorKey)
-        chromatic = m21.interval.ChromaticInterval(semitonesUp)
-        newKeyPitch: m21.pitch.Pitch = chromatic.transposePitch(keyPitch)
+        if semitonesUp == 0:
+            newKeyPitch = deepcopy(keyPitch)
+        else:
+            chromatic = m21.interval.ChromaticInterval(semitonesUp)
+            newKeyPitch: m21.pitch.Pitch = chromatic.transposePitch(keyPitch)
 
         # put octaves on them now, and then check it
         keyPitch.octave = 4
@@ -555,7 +558,9 @@ class MusicEngine:
 
         newKeyPitch.octave += octavesUp
 
-        if newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values():
+        if (newKeyPitch.name in MusicEngine._SHARPS_TO_MAJOR_KEYS.values()
+                and newKeyPitch.name != 'C-' and newKeyPitch.name != 'C#'):
+            # we prefer 5 flats to 7 sharps, and 5 sharps to 7 flats
             interval = m21.interval.Interval(keyPitch, newKeyPitch)
             return interval
 
@@ -699,6 +704,12 @@ class MusicEngine:
         # ChordSymbols from the piano accompaniment.
         leadSheet: m21.stream.Score = deepcopy(inLeadSheet)
 
+        melody: m21.stream.Part | None
+        chords: m21.stream.Part | None
+        melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
+        if melody is None or chords is None:
+            raise MusicEngineException('not a useable leadsheet (no melody, or no chords)')
+
         # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
         # duration == 0 or 1, which doesn't help us find the ChordSymbol that has a
         # time range that contains a particular offset.  We have our own copy of this,
@@ -717,12 +728,6 @@ class MusicEngine:
         # Most directions, dynamics, metronome marks, etc, will no longer apply.
         MusicEngine.removeAllDirections(leadSheet)
 
-        melody: m21.stream.Part | None
-        chords: m21.stream.Part | None
-        melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
-        if melody is None or chords is None:
-            raise MusicEngineException('not a useable leadsheet (no melody, or no chords)')
-
         # Now pick a key that will work for lead voice range, and transpose.
         melodyInfo: VocalRangeInfo = VocalRangeInfo(melody)
         semitones: int = (
@@ -739,6 +744,13 @@ class MusicEngine:
         # put the right clefs in the output, and it knows  exactly what
         # octave the melody notes are in (without caring about the clef).
         MusicEngine.transposeInPlace(leadSheet, semitones)
+        allKeySigs: list[m21.key.KeySignature] = list(
+            leadSheet.recurse()
+            .getElementsByClass(m21.key.KeySignature)
+        )
+        for ks in allKeySigs:
+            if abs(ks.sharps) > 6:
+                print('you can do a better transposition of this key')
 
         # First we process the melody into the lead part (creating the entire output
         # score structures as we go, including parts, and measures; inserting
@@ -2110,9 +2122,12 @@ class MusicEngine:
 
         chordPart: m21.stream.Part | None = None
         for part in parts:
+            numChords: int = 0
             for _cs in part[m21.harmony.ChordSymbol]:
-                chordPart = part
-                break
+                numChords += 1
+                if numChords > 1:
+                    chordPart = part
+                    break
 
             if chordPart is not None:
                 break
