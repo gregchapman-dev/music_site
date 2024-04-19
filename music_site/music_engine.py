@@ -8,7 +8,7 @@ from copy import copy, deepcopy
 from collections.abc import Sequence
 
 import music21 as m21
-from music21.common.numberTools import OffsetQL
+from music21.common.numberTools import OffsetQL, opFrac
 from music21.figuredBass import realizerScale
 
 
@@ -512,8 +512,8 @@ class MusicEngine:
     }
 
     @staticmethod
-    def getBestTranspositionForScore(
-        score: m21.stream.Score,
+    def getBestTranspositionForKeySig(
+        keySig: m21.key.KeySignature,
         semitonesUp: int
     ) -> m21.interval.Interval:
         # if semitonesUp is more than an octave, trim it, but remember how many octaves
@@ -523,25 +523,18 @@ class MusicEngine:
         octavesUp: int = -(-semitonesUp // 12) if semitonesUp < 0 else semitonesUp // 12
         semitonesUp = semitonesUp - (octavesUp * 12)
 
+        majorKey: str = MusicEngine._SHARPS_TO_MAJOR_KEYS[keySig.sharps]
+
         # We need to transpose the key, and pick the right enharmonic
         # key that has <= 7 sharps or flats, or we'll end up in the
         # key of G# major and have 8 sharps (or worse).
-        keySigs: list[m21.key.KeySignature] = list(
-            score.recurse()
-            .getElementsByClass(m21.key.KeySignature)
-            .getElementsByOffsetInHierarchy(0.0)
-        )
-
-        majorKey: str = 'C'
-        if keySigs:
-            majorKey = MusicEngine._SHARPS_TO_MAJOR_KEYS[keySigs[0].sharps]
-
-        keyPitch = m21.pitch.Pitch(majorKey)
+        keyPitch: m21.pitch.Pitch = m21.pitch.Pitch(majorKey)
+        newKeyPitch: m21.pitch.Pitch
         if semitonesUp == 0:
             newKeyPitch = deepcopy(keyPitch)
         else:
             chromatic = m21.interval.ChromaticInterval(semitonesUp)
-            newKeyPitch: m21.pitch.Pitch = chromatic.transposePitch(keyPitch)
+            newKeyPitch = chromatic.transposePitch(keyPitch)
 
         # put octaves on them now, and then check it
         keyPitch.octave = 4
@@ -580,12 +573,71 @@ class MusicEngine:
         )
 
     @staticmethod
-    def transposeInPlace(score: m21.stream.Score, semitones: int):
-        interval: m21.interval.Interval = (
-            MusicEngine.getBestTranspositionForScore(score, semitones)
+    def getBestTranspositionsForScore(
+        score: m21.stream.Score,
+        semitonesUp: int
+    ) -> list[tuple[OffsetQL, m21.key.KeySignature, m21.interval.Interval]]:
+        # returns a sorted (by offset) list of (offset, keysig, interval) tuples
+        keySigs: list[m21.key.KeySignature] = list(
+            score.recurse()
+            .getElementsByClass(m21.key.KeySignature)
         )
+
+        keySigAndTransposeIntervalAtOffset: dict[
+            OffsetQL,
+            tuple[m21.key.KeySignature, m21.interval.Interval]
+        ] = {}
+        for keySig in keySigs:
+            offsetInScore: OffsetQL = opFrac(keySig.getOffsetInHierarchy(score))
+            if offsetInScore not in keySigAndTransposeIntervalAtOffset:
+                interval: m21.interval.Interval = MusicEngine.getBestTranspositionForKeySig(
+                    keySig, semitonesUp
+                )
+                keySigAndTransposeIntervalAtOffset[offsetInScore] = keySig, interval
+
+        if opFrac(0) not in keySigAndTransposeIntervalAtOffset:
+            startKey: m21.key.KeySignature = m21.key.KeySignature(0)
+            interval = MusicEngine.getBestTranspositionForKeySig(startKey, semitonesUp)
+            keySigAndTransposeIntervalAtOffset[opFrac(0)] = startKey, interval
+
+        # turn it into a sorted (by offset) list of [offset, keysig, interval] tuples
+
+        output: list[tuple[OffsetQL, m21.key.KeySignature, m21.interval.Interval]] = []
+        for offset, (keySig, interval) in keySigAndTransposeIntervalAtOffset.items():
+            output.append((offset, keySig, interval))
+
+        output = sorted(output, key=lambda x: x[0])
+        return output
+
+    @staticmethod
+    def transposeInPlace(score: m21.stream.Score, semitones: int):
+        offsetKeySigIntervalList: list[tuple[
+            OffsetQL,
+            m21.key.KeySignature,
+            m21.interval.Interval
+        ]] = MusicEngine.getBestTranspositionsForScore(score, semitones)
+
+        highestScoreOffset: OffsetQL = score.highestTime
         with m21.stream.makeNotation.saveAccidentalDisplayStatus(score):
-            score.transpose(interval, inPlace=True)
+            for thisIdx, (offsetStart, _keySig, interval) in enumerate(offsetKeySigIntervalList):
+                endOffset: OffsetQL = highestScoreOffset
+                if thisIdx + 1 < len(offsetKeySigIntervalList):
+                    endOffset = offsetKeySigIntervalList[thisIdx + 1][0]
+
+                includeEndBoundary: bool = False
+                if endOffset == highestScoreOffset:
+                    includeEndBoundary = True
+
+                flatScore: m21.stream.Score = score.flatten()
+                partialScore: m21.stream.Stream = (
+                    flatScore.recurse().getElementsByOffsetInHierarchy(
+                        offsetStart,
+                        offsetEnd=endOffset,
+                        includeEndBoundary=includeEndBoundary
+                    ).stream()
+                )
+
+                partialScore.transpose(interval, inPlace=True)
 
     STEM_DIRECTION: dict[PartName, str] = {
         PartName.Tenor: 'up',
