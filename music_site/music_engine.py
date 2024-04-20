@@ -91,12 +91,12 @@ class Chord(Sequence):
             except m21.chord.ChordException:
                 pass
 
-        # Note that self.pitches may not contain all of cs.pitches, since
-        # if cs.pitches includes, say, a flat 9th and a sharp 9th, we'll
-        # only pick up one of them via getChordStep().  That's OK for
-        # our purposes.
-        for p in pitchesForRole:
-            if p is not None:
+        # Note that self.pitches may not contain all of self.sym.pitches, since
+        # if self.sym.pitches includes, say, a flat 9th and a sharp 9th, we'll
+        # only pick up one of them via getChordStep().  That's OK for our
+        # purposes.
+        for p in self.sym.pitches:
+            if p in pitchesForRole:
                 self.pitches.append(p)
 
         pitchNames: list[str] = [p.name for p in self.pitches]
@@ -1449,13 +1449,11 @@ class MusicEngine:
             # If the /bass note is an extra note (not just an inversion), we will drop
             # 5 or 3 (in that order of preference) to make room for it.
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, (5, 3))
+            return output
 
         if tuple(allOfThem.keys()) == (1, 3, 5, 6):
             # 6th chord.
-            output[1] = allOfThem[1]
-            output[3] = allOfThem[3]
-            output[5] = allOfThem[5]
-            output[6] = allOfThem[6]
+            output = copy(allOfThem)
 
             # If the /bass note is an extra note (not just an inversion), we will drop
             # 5 or 1 (in that order of preference) to make room for it.
@@ -1464,22 +1462,15 @@ class MusicEngine:
 
         if tuple(allOfThem.keys()) == (1, 3, 5, 7):
             # 7th Chord of some sort.
-            output[1] = allOfThem[1]
-            output[3] = allOfThem[3]
-            output[5] = allOfThem[5]
-            output[7] = allOfThem[7]
+            output = copy(allOfThem)
             # If the /bass note is an extra note (not just an inversion), we will drop
             # 5 or 1 (in that order of preference) to make room for it.
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, (5, 1))
             return output
 
-        if tuple(allOfThem.keys()) == (1, 3, 5):
-            # Triad of some sort.
-            output[1] = allOfThem[1]
-            output[3] = allOfThem[3]
-            output[5] = allOfThem[5]
-            # no need to pass in an ordered tuple of roles to delete, since there is obviously
-            # room for the extra /bass note (if there is such a thing in the chord).
+        if len(allOfThem) == 3:
+            # Triad of some sort (could be sus4, sus2...)
+            output = copy(allOfThem)
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, tuple())
             return output
 
@@ -1752,10 +1743,10 @@ class MusicEngine:
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
             measure[PartName.Bass].insert(offset, space)
-            return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
             # )
+            return
 
         elif roles == (1, 7, 9, 11):
             # 11th chord with root in lead
@@ -1763,10 +1754,10 @@ class MusicEngine:
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
             measure[PartName.Bass].insert(offset, space)
-            return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
             # )
+            return
 
         elif roles == (3, 7, 9, 11):
             # 11th chord with third in lead
@@ -1774,10 +1765,10 @@ class MusicEngine:
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
             measure[PartName.Bass].insert(offset, space)
-            return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
             # )
+            return
 
         elif roles in (
                 (1, 9, 11, 13),
@@ -1788,20 +1779,20 @@ class MusicEngine:
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
             measure[PartName.Bass].insert(offset, space)
-            return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
             # )
+            return
 
         else:
             space = m21.note.Rest()
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
             measure[PartName.Bass].insert(offset, space)
-            return
             # raise MusicEngineException(
             #     f'Don\'t know how to harmonize this chord: {roles}'
             # )
+            return
 
 
         # Specify stem directions explicitly
