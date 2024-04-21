@@ -760,13 +760,13 @@ class MusicEngine:
         for nc in melody[m21.note.NotRest]:
             if isinstance(nc, m21.harmony.ChordSymbol):
                 continue
+            offset: OffsetQL = nc.getOffsetInHierarchy(melody)
             if isinstance(nc, m21.chord.Chord):
                 nc = nc.notes[0]
 
             if t.TYPE_CHECKING:
                 assert isinstance(nc, m21.note.Note)
             notePitch: m21.pitch.Pitch = deepcopy(nc.pitch)
-            offset: OffsetQL = nc.getOffsetInHierarchy(melody)
             chord = MusicEngine.findChordAtOffset(chords, offset)
             if chord is None:
                 continue
