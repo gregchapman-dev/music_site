@@ -347,14 +347,16 @@ class VocalRangeInfo:
         # well beyond any reasonable vocal range max/min.
         for i, n in enumerate(s[m21.note.Note]):
             if i == 0:
-                self.fullRange = VocalRange(n.pitch, n.pitch)
+                self.fullRange = VocalRange(deepcopy(n.pitch), deepcopy(n.pitch))
                 continue
 
             if t.TYPE_CHECKING:
                 assert isinstance(self.fullRange, VocalRange)
 
-            self.fullRange.lowest = min(self.fullRange.lowest, n.pitch)
-            self.fullRange.highest = max(self.fullRange.highest, n.pitch)
+            if n.pitch < self.fullRange.lowest:
+                self.fullRange.lowest = deepcopy(n.pitch)
+            if n.pitch > self.fullRange.highest:
+                self.fullRange.highest = deepcopy(n.pitch)
 
     def getTranspositionSemitones(
         self,
@@ -1591,13 +1593,17 @@ class MusicEngine:
         if partRange.isTooLow(n.pitch):
             n.pitch.octave += 1
             if partRange.isTooLow(n.pitch):
-                raise MusicEngineException('note is WAY too low for part')
+                n.pitch.octave += 1
+                if partRange.isTooLow(n.pitch):
+                    raise MusicEngineException('note is WAY too low for part')
             return
 
         if partRange.isTooHigh(n.pitch):
             n.pitch.octave -= 1
             if partRange.isTooHigh(n.pitch):
-                raise MusicEngineException('note is WAY too high for part')
+                n.pitch.octave -= 1
+                if partRange.isTooHigh(n.pitch):
+                    raise MusicEngineException('note is WAY too high for part')
             return
 
         raise MusicEngineException('should not get here (note is both in and out of range')
@@ -1817,7 +1823,7 @@ class MusicEngine:
                         offset=offset,
                     )
 
-            elif lead.pitch.name == third or lead.pitch.name == seventh:
+            elif lead.pitch.name in (third, seventh):
                 while True:
                     # we will only iterate once, breaking out if we find a good note
                     rootBelowLead: m21.note.Note = MusicEngine.makeNote(
@@ -1861,8 +1867,7 @@ class MusicEngine:
 
                     if lead.pitch.name == third:
                         raise MusicEngineException('lead on third; couldn\'t find bass')
-                    else:
-                        raise MusicEngineException('lead on seventh; couldn\'t find bass')
+                    raise MusicEngineException('lead on seventh; couldn\'t find bass')
 
             elif lead.pitch.name == fifth:
                 # bass on root
