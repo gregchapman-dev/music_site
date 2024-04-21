@@ -119,8 +119,13 @@ class Chord(Sequence):
             # move this pitchForRole entry up to a higher role (e.g. 4 -> 11)
             higherRole: int = role + 7
             if higherRole >= len(pitchesForRole):
-                # shouldn't happen
-                raise MusicEngineException('cannot figure out pitch roles in chord')
+                # shouldn't happen, but sometimes music21 does this (I've seen it
+                # add 9 and then add 7 nearly an octave higher).  Just leave it
+                # where it is, down an octave from where music21 said.
+                role += 1
+                pitchIdx += 1
+                continue
+
             pitchesForRole[higherRole] = pitchesForRole[role]
             pitchesForRole[role] = None
             role += 1  # don't increment pitchIdx, we need to process it again with next role
@@ -463,6 +468,12 @@ class MusicEngine:
         output._tie = None
         if output.pitch.accidental is not None:
             output.pitch.accidental.displayStatus = None
+
+        if hasattr(output, 'music_engine_badly_spelled_pitch'):
+            del output.music_engine_badly_spelled_pitch  # type: ignore
+        if hasattr(output, 'music_engine_well_spelled_pitch'):
+            del output.music_engine_well_spelled_pitch  # type: ignore
+
         return output
 
     @staticmethod
@@ -653,6 +664,7 @@ class MusicEngine:
                 )
 
                 partialScore.transpose(interval, inPlace=True)
+                MusicEngine.transposeAlternateSpellings(partialScore, interval)
 
     STEM_DIRECTION: dict[PartName, str] = {
         PartName.Tenor: 'up',
@@ -743,6 +755,61 @@ class MusicEngine:
                 thisChordMeas.insert(0, lastChord2)
 
     @staticmethod
+    def fixupBadlySpelledNotes(melody: m21.stream.Part, chords: m21.stream.Part):
+        # note that melody and chords may or may not be the same part.
+        for nc in melody[m21.note.NotRest]:
+            if isinstance(nc, m21.harmony.ChordSymbol):
+                continue
+            if isinstance(nc, m21.chord.Chord):
+                nc = nc.notes[0]
+
+            if t.TYPE_CHECKING:
+                assert isinstance(nc, m21.note.Note)
+            notePitch: m21.pitch.Pitch = deepcopy(nc.pitch)
+            offset: OffsetQL = nc.getOffsetInHierarchy(melody)
+            chord = MusicEngine.findChordAtOffset(chords, offset)
+            if chord is None:
+                continue
+
+            chordPitchNames: list[str] = [p.name for p in chord.pitches]
+            if notePitch.name in chordPitchNames:
+                continue
+
+            # check for enharmonic equivalence
+            notePitch.getEnharmonic(inPlace=True)
+            if notePitch.name in chordPitchNames:
+                nc.music_engine_badly_spelled_pitch = deepcopy(nc.pitch)  # type: ignore
+                nc.music_engine_well_spelled_pitch = deepcopy(notePitch)  # type: ignore
+                nc.pitch = notePitch
+                continue
+
+            # check again (some pitches cycle between three enharmonics)
+            notePitch.getEnharmonic(inPlace=True)
+            if notePitch.name in chordPitchNames:
+                nc.music_engine_badly_spelled_pitch = deepcopy(nc.pitch)  # type: ignore
+                nc.music_engine_well_spelled_pitch = deepcopy(notePitch)  # type: ignore
+                nc.pitch = notePitch
+                continue
+
+    @staticmethod
+    def transposeAlternateSpellings(stream: m21.stream.Stream, interval: m21.interval.Interval):
+        for nc in stream[m21.note.Note]:
+            if hasattr(nc, 'music_engine_badly_spelled_pitch'):
+                nc.music_engine_badly_spelled_pitch.transpose(  # type: ignore
+                    interval, inPlace=True
+                )
+            if hasattr(nc, 'music_engine_well_spelled_pitch'):
+                nc.music_engine_well_spelled_pitch.transpose(  # type: ignore
+                    interval, inPlace=True
+                )
+
+    @staticmethod
+    def putBackAnyBadlySpelledNotes(stream: m21.stream.Stream):
+        for nc in stream[m21.note.Note]:
+            if hasattr(nc, 'music_engine_badly_spelled_pitch'):
+                nc.pitch = deepcopy(nc.music_engine_badly_spelled_pitch)  # type: ignore
+
+    @staticmethod
     def removeAllBeams(leadSheet: m21.stream.Score):
         # in place
         for nc in leadSheet[m21.note.NotRest]:
@@ -786,6 +853,13 @@ class MusicEngine:
 
         # more fixups to the leadsheet score
         M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
+
+        # if a melody note is in the chord enharmonically, respell the
+        # melody note to be obviously in the chord. e.g. a C melody note
+        # in a Em7#5 chord.  The #5 in an Em7#5 is a B#, which is enharmonically
+        # equivalent to C, so fix the melody note's spelling to be B#.  This
+        # helps simplify the harmonization code, and everyone likes good spelling.
+        MusicEngine.fixupBadlySpelledNotes(melody, chords)
 
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
@@ -863,9 +937,12 @@ class MusicEngine:
                 if hasattr(rest, 'shopit_isPlaceHolder'):
                     bbMeas.remove(rest)
 
-        # And put regularized beams back in
+        # Put regularized beams (and badly spelled lead notes) back in
         for part in shopped.parts:
             m21.stream.makeNotation.makeBeams(part, inPlace=True, setStemDirections=False)
+
+        # This ends up screwing up accidental display, I'm not sure why
+        # MusicEngine.putBackAnyBadlySpelledNotes(shopped)
 
         return shopped
 
@@ -1391,8 +1468,10 @@ class MusicEngine:
         allOfThem: dict[int, str] = (
             MusicEngine.getChordPitchNames(chord)
         )
+        roles: tuple[int, ...] = tuple(allOfThem.keys())
+
         # Catch the weird cases first (we have to pick which note(s) to drop)
-        if tuple(allOfThem.keys()) == (1, 3, 5, 7, 9, 11, 13):
+        if roles == (1, 3, 5, 7, 9, 11, 13):
             # 13th chord of some sort. For now, just return 7/9/11/13
             # unless the lead is on 1, 3, or 5, in which case return
             # lead/9/11/13 (this is a guess; lead/7/11/13 et al are
@@ -1414,7 +1493,7 @@ class MusicEngine:
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, (11, 7))
             return output
 
-        if tuple(allOfThem.keys()) == (1, 3, 5, 7, 9, 11):
+        if roles == (1, 3, 5, 7, 9, 11):
             # 11th chord of some sort.
             # Vol 2 Figure 14.18 likes 5/7/9/11.
             # But if lead is on 1 or 3, we will return lead/7/9/11
@@ -1434,7 +1513,7 @@ class MusicEngine:
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, (5, 7))
             return output
 
-        if tuple(allOfThem.keys()) == (1, 3, 5, 7, 9):
+        if roles == (1, 3, 5, 7, 9):
             # 9th chord
             # Vol 2 Figure 14.30 likes 3, 5, 7, 9.
             # But if lead is on 1, we will return 1/5/7/9.
@@ -1451,7 +1530,7 @@ class MusicEngine:
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, (5, 3))
             return output
 
-        if tuple(allOfThem.keys()) == (1, 3, 5, 6):
+        if roles == (1, 3, 5, 6):
             # 6th chord.
             output = copy(allOfThem)
 
@@ -1460,7 +1539,10 @@ class MusicEngine:
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, (5, 1))
             return output
 
-        if tuple(allOfThem.keys()) == (1, 3, 5, 7):
+        if roles in (
+                (1, 3, 5, 7),
+                (1, 4, 5, 7),
+                (1, 2, 5, 7)):
             # 7th Chord of some sort.
             output = copy(allOfThem)
             # If the /bass note is an extra note (not just an inversion), we will drop
@@ -1474,13 +1556,20 @@ class MusicEngine:
             MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, tuple())
             return output
 
+        if len(allOfThem) == 4:
+            # triad add something?
+            output = copy(allOfThem)
+            MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, tuple())
+            return output
+
         output = copy(allOfThem)
         # If the /bass note is an extra note (not just an inversion), we will drop
         # a random note to make room for it.
         MusicEngine._addBassPitchToVocalParts(
             output, chord, leadPitchName, (5, 1, 7, 9, 11, 13, 3, 6, 2, 4)
         )
-        raise MusicEngineException(f'getChordVocalParts: unrecognized chord roles: {allOfThem}')
+        if chord.sym.chordKind != 'power':
+            raise MusicEngineException(f'getChordVocalParts: unrecognized chord roles: {allOfThem}')
         return output
 
     @staticmethod
@@ -1614,22 +1703,15 @@ class MusicEngine:
                     'harmonizePillarChordBass: lead note not in pillar chord'
                 )
 
-        elif roles in (
-                (1, 3, 5, 7),
-                (1, 3, 5, 6),
-                (1, 5, 7, 9),
-                (3, 5, 7, 9),
-                (1, 7, 9, 11),
-                (3, 7, 9, 11),
-                (5, 7, 9, 11),
-                (1, 9, 11, 13),
-                (3, 9, 11, 13),
-                (5, 9, 11, 13),
-                (7, 9, 11, 13)):
-            if roles == (1, 3, 5, 7):
-                # 7th chord: no doubling the root.
+        elif len(roles) == 4:
+            if roles in (
+                    (1, 3, 5, 7),
+                    (1, 4, 5, 7),
+                    (1, 2, 5, 7)):
+                # 7th chord: no doubling the root.  Note that we handle sus2 and sus4 as
+                # if the 2 or 4 is the third.
                 root = chPitch[1]
-                third = chPitch[3]
+                third = chPitch[roles[1]]
                 fifth = chPitch[5]
                 seventh: str = chPitch[7]
             elif roles == (1, 3, 5, 6):
@@ -1696,6 +1778,15 @@ class MusicEngine:
                 third = chPitch[9]
                 fifth = chPitch[11]
                 seventh = chPitch[13]
+            elif len(roles) == 4 and 1 in roles and 3 in roles and 5 in roles:
+                # triad add <something>: treat it like triad add 7 (i.e. 7th chord)
+                root = chPitch[1]
+                third = chPitch[3]
+                fifth = chPitch[5]
+                for role in roles:
+                    if role not in (1, 3, 5):
+                        seventh = chPitch[role]
+                        break
             else:
                 # shouldn't happen unless we screw up the if conditions.
                 raise MusicEngineException(
@@ -1726,14 +1817,14 @@ class MusicEngine:
                         offset=offset,
                     )
 
-            elif lead.pitch.name == third:
+            elif lead.pitch.name == third or lead.pitch.name == seventh:
                 while True:
                     # we will only iterate once, breaking out if we find a good note
                     rootBelowLead: m21.note.Note = MusicEngine.makeNote(
                         root, copyFrom=lead, below=lead
                     )
                     fifthBelowLead: m21.note.Note = MusicEngine.makeNote(
-                        root, copyFrom=lead, below=lead
+                        fifth, copyFrom=lead, below=lead
                     )
 
                     if partRange.isInRange(rootBelowLead.pitch):
@@ -1768,19 +1859,16 @@ class MusicEngine:
                             bass = fifthAboveLead
                             break
 
-                    raise MusicEngineException('lead on third; couldn\'t find bass')
+                    if lead.pitch.name == third:
+                        raise MusicEngineException('lead on third; couldn\'t find bass')
+                    else:
+                        raise MusicEngineException('lead on seventh; couldn\'t find bass')
 
             elif lead.pitch.name == fifth:
-                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)  # assume in bass range
-
-            elif lead.pitch.name == seventh:
-                # put bass on fifth, a 3rd below the lead (or a 10th below if that's too high)
-                bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
+                # bass on root
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooHigh(bass.pitch):
-                    # try bass on root, nearly an octave below the lead
-                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
-                if partRange.isOutOfRange(bass.pitch):
-                    raise MusicEngineException('lead on seventh; couldn\'t find bass')
+                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
 
             else:
                 # Should never happen, because we wouldn't call this routine if
@@ -1794,9 +1882,10 @@ class MusicEngine:
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
             measure[PartName.Bass].insert(offset, space)
-            raise MusicEngineException(
-                f'Don\'t know how to harmonize this chord: {roles}'
-            )
+            if roles != (1, 5):
+                raise MusicEngineException(
+                    f'Don\'t know how to harmonize this chord: {roles}'
+                )
             return
 
 
@@ -2234,11 +2323,11 @@ class MusicEngine:
 
     @staticmethod
     def findChordAtOffset(
-        measure: m21.stream.Measure,
+        stream: m21.stream.Stream,
         offset: OffsetQL
     ) -> Chord | None:
-        for cs in measure[m21.harmony.ChordSymbol]:
-            startChord: OffsetQL = cs.getOffsetInHierarchy(measure)
+        for cs in stream[m21.harmony.ChordSymbol]:
+            startChord: OffsetQL = cs.getOffsetInHierarchy(stream)
             endChord: OffsetQL = startChord + cs.duration.quarterLength
             if startChord <= offset < endChord:
                 return Chord(cs)
