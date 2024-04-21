@@ -1480,6 +1480,7 @@ class MusicEngine:
         MusicEngine._addBassPitchToVocalParts(
             output, chord, leadPitchName, (5, 1, 7, 9, 11, 13, 3, 6, 2, 4)
         )
+        raise MusicEngineException(f'getChordVocalParts: unrecognized chord roles: {allOfThem}')
         return output
 
     @staticmethod
@@ -1557,64 +1558,73 @@ class MusicEngine:
         roleList.sort()
         roles: tuple[int, ...] = tuple(roleList)
 
-        if roles == (1, 3, 5):
-            # Triad: you can double the root if there's no "extra" /bass note
-            if preferredBass:
-                bass = MusicEngine.makeNote(preferredBass, copyFrom=lead, below=lead)
-                MusicEngine.moveIntoRange(bass, partRange)
-            else:
-                root: str = chPitch[1]
-                third: str = chPitch[3]
-                fifth: str = chPitch[5]
+        # Triad: you can double the root if there's no "extra" /bass note
+        if preferredBass:
+            bass = MusicEngine.makeNote(preferredBass, copyFrom=lead, below=lead)
+            MusicEngine.moveIntoRange(bass, partRange)
+        elif roles in (
+                (1, 3, 5),
+                (1, 2, 5),
+                (1, 4, 5),
+                (1, 3, 6)):
+            root: str = chPitch[1]
+            third: str = chPitch[roles[1]]  # we treat 2, 3, or 4 as the third
+            fifth: str = chPitch[roles[2]]  # we treat 5 or 6 as the fifth
 
-                if lead.pitch.name == root:
-                    # Lead is on root, take doubled root an octave below
-                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+            if lead.pitch.name == root:
+                # Lead is on root, take doubled root an octave below
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    # root an octave below lead is too low, try the fifth below the lead
+                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
-                        # root an octave below lead is too low, try the fifth below the lead
-                        bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
-                        if partRange.isTooLow(bass.pitch):
-                            # still too low, just sing the same note (root) as the lead
-                            bass = MusicEngine.copyNote(lead)
+                        # still too low, just sing the same note (root) as the lead
+                        bass = MusicEngine.copyNote(lead)
 
-                elif lead.pitch.name == third:
-                    # Lead is on third, take root a 10th below
-                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
+            elif lead.pitch.name == third:
+                # Lead is on third, take root a 10th below
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
+                if partRange.isTooLow(bass.pitch):
+                    # Take fifth (below the lead's third)
+                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
-                        # Take fifth (below the lead's third)
-                        bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
-                        if partRange.isTooLow(bass.pitch):
-                            # Fine, take the root just below the lead
-                            bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                        # Fine, take the root just below the lead
+                        bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
-                elif lead.pitch.name == fifth:
-                    # Lead is on fifth, take root below
-                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
-                    if partRange.isTooLow(bass.pitch):
-                        # Ugh. Lead must be really low. Push the lead up a 4th to
-                        # the next higher root, and take the lead note yourself.
-                        bass = MusicEngine.copyNote(lead)  # fifth, assume it's in bass range
-                        lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
-                            root,
-                            copyFrom=lead,
-                            replacedNote=lead,
-                            above=bass,
-                            voice=measure[PartName.Lead],
-                            offset=offset,
-                        )
-
-                else:
-                    # Should never happen, because we wouldn't call this routine if
-                    # the lead wasn't on a chord note.
-                    raise MusicEngineException(
-                        'harmonizePillarChordBass: lead note not in pillar chord'
+            elif lead.pitch.name == fifth:
+                # Lead is on fifth, take root below
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                if partRange.isTooLow(bass.pitch):
+                    # Ugh. Lead must be really low. Push the lead up a 4th to
+                    # the next higher root, and take the lead note yourself.
+                    bass = MusicEngine.copyNote(lead)  # fifth, assume it's in bass range
+                    lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
+                        root,
+                        copyFrom=lead,
+                        replacedNote=lead,
+                        above=bass,
+                        voice=measure[PartName.Lead],
+                        offset=offset,
                     )
+
+            else:
+                # Should never happen, because we wouldn't call this routine if
+                # the lead wasn't on a chord note.
+                raise MusicEngineException(
+                    'harmonizePillarChordBass: lead note not in pillar chord'
+                )
 
         elif roles in (
                 (1, 3, 5, 7),
                 (1, 3, 5, 6),
+                (1, 5, 7, 9),
                 (3, 5, 7, 9),
+                (1, 7, 9, 11),
+                (3, 7, 9, 11),
                 (5, 7, 9, 11),
+                (1, 9, 11, 13),
+                (3, 9, 11, 13),
+                (5, 9, 11, 13),
                 (7, 9, 11, 13)):
             if roles == (1, 3, 5, 7):
                 # 7th chord: no doubling the root.
@@ -1631,24 +1641,66 @@ class MusicEngine:
                 third = chPitch[3]
                 fifth = chPitch[5]
                 seventh = chPitch[6]
+            elif roles == (1, 5, 7, 9):
+                # 9th chord with no third: Treat the 9th as the third
+                root = chPitch[1]
+                third = chPitch[9]
+                fifth = chPitch[5]
+                seventh = chPitch[7]
             elif roles == (3, 5, 7, 9):
                 # 9th chord with no root: Treat it as a 7th chord rooted at 3
                 root = chPitch[3]
                 third = chPitch[5]
                 fifth = chPitch[7]
                 seventh = chPitch[9]
+            elif roles == (1, 7, 9, 11):
+                # 11th chord with no third/fifth: Treat 9 and 11 as 3 and 5
+                root = chPitch[1]
+                third = chPitch[9]
+                fifth = chPitch[11]
+                seventh = chPitch[7]
+            elif roles == (3, 7, 9, 11):
+                # 11th chord with no root/fifth: Treat as if rooted at 9 (and weird)
+                root = chPitch[9]
+                third = chPitch[11]
+                fifth = chPitch[7]
+                seventh = chPitch[3]
             elif roles == (5, 7, 9, 11):
                 # 11th chord with no root/third: Treat it as a 7th chord rooted at 5
                 root = chPitch[5]
                 third = chPitch[7]
                 fifth = chPitch[9]
                 seventh = chPitch[11]
-            else:
+            elif roles == (1, 9, 11, 13):
+                # 13th chord with no third/fifth/seventh: Treat as 7th chord rooted at 9
+                root = chPitch[9]
+                third = chPitch[11]
+                fifth = chPitch[13]
+                seventh = chPitch[1]
+            elif roles == (3, 9, 11, 13):
+                # 13th chord with no root/fifth/seventh: Treat as rooted a 9, I think.
+                # It's weird. The "seventh" ends up being a sort of 9th.
+                root = chPitch[9]
+                third = chPitch[11]
+                fifth = chPitch[13]
+                seventh = chPitch[3]
+            elif roles == (5, 9, 11, 13):
+                # 13th chord with no root/third/seventh: Treat as 7sus2 rooted on 5
+                root = chPitch[5]
+                third = chPitch[13]
+                fifth = chPitch[9]
+                seventh = chPitch[11]
+            elif roles == (7, 9, 11, 13):
                 # 13th chord with no root/third/fifth: Treat it as a 7th chord rooted at 7
                 root = chPitch[7]
                 third = chPitch[9]
                 fifth = chPitch[11]
                 seventh = chPitch[13]
+            else:
+                # shouldn't happen unless we screw up the if conditions.
+                raise MusicEngineException(
+                    f'Don\'t know how to harmonize this chord: {roles}'
+                )
 
             bassPitchName: str = pillarChord.preferredBassPitchName
             if bassPitchName and bassPitchName != lead.pitch.name:
@@ -1737,61 +1789,14 @@ class MusicEngine:
                     'harmonizePillarChordBass: lead note not in pillar chord'
                 )
 
-        elif roles == (1, 5, 7, 9):
-            # 9th chord with root
-            space: m21.note.Rest = m21.note.Rest()
-            space.quarterLength = lead.quarterLength
-            space.style.hideObjectOnPrint = True
-            measure[PartName.Bass].insert(offset, space)
-            # raise MusicEngineException(
-            #     f'Don\'t know how to harmonize this chord: {roles}'
-            # )
-            return
-
-        elif roles == (1, 7, 9, 11):
-            # 11th chord with root in lead
-            space = m21.note.Rest()
-            space.quarterLength = lead.quarterLength
-            space.style.hideObjectOnPrint = True
-            measure[PartName.Bass].insert(offset, space)
-            # raise MusicEngineException(
-            #     f'Don\'t know how to harmonize this chord: {roles}'
-            # )
-            return
-
-        elif roles == (3, 7, 9, 11):
-            # 11th chord with third in lead
-            space = m21.note.Rest()
-            space.quarterLength = lead.quarterLength
-            space.style.hideObjectOnPrint = True
-            measure[PartName.Bass].insert(offset, space)
-            # raise MusicEngineException(
-            #     f'Don\'t know how to harmonize this chord: {roles}'
-            # )
-            return
-
-        elif roles in (
-                (1, 9, 11, 13),
-                (3, 9, 11, 13),
-                (5, 9, 11, 13)):
-            # 13th chord with 1, 3, or 5 in lead
-            space = m21.note.Rest()
-            space.quarterLength = lead.quarterLength
-            space.style.hideObjectOnPrint = True
-            measure[PartName.Bass].insert(offset, space)
-            # raise MusicEngineException(
-            #     f'Don\'t know how to harmonize this chord: {roles}'
-            # )
-            return
-
         else:
             space = m21.note.Rest()
             space.quarterLength = lead.quarterLength
             space.style.hideObjectOnPrint = True
             measure[PartName.Bass].insert(offset, space)
-            # raise MusicEngineException(
-            #     f'Don\'t know how to harmonize this chord: {roles}'
-            # )
+            raise MusicEngineException(
+                f'Don\'t know how to harmonize this chord: {roles}'
+            )
             return
 
 
