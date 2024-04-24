@@ -167,8 +167,8 @@ def runTheTest(inputPath: Path, results) -> bool:
         results.flush()
         return False
 
-    print('all good (lowerGaps: {lowerGaps} upperGaps: {upperGaps})')
-    print('all good (lowerGaps: {lowerGaps} upperGaps: {upperGaps})', file=results)
+    print(f'all good (lowerGaps: {lowerGaps} upperGaps: {upperGaps})')
+    print(f'all good (lowerGaps: {lowerGaps} upperGaps: {upperGaps})', file=results)
 
     return True
 
