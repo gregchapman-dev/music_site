@@ -35,8 +35,8 @@ def runTheTest(inputPath: Path, results) -> bool:
     if not score1.elements:
         # empty score is valid result, but assume diff will be exact
         # (export of empty score fails miserably)
-        print('numDiffs = 0 (empty score1)')
-        print('numDiffs = 0 (empty score1)', file=results)
+        print('empty score1')
+        print('empty score1', file=results)
         results.flush()
         return True
 
@@ -153,8 +153,22 @@ def runTheTest(inputPath: Path, results) -> bool:
         results.flush()
         return False
 
-    print('all good')
-    print('all good', file=results)
+    # compute how many melody notes have no harmonization
+    lowerGaps: int = 0
+    upperGaps: int = 0
+    try:
+        lowerGaps = MusicEngine.countHarmonyGaps(lowerShop)
+        upperGaps = MusicEngine.countHarmonyGaps(upperShop)
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception as e:
+        print(f'Gap counting crash: {e}')
+        print(f'Gap counting crash: {e}', file=results)
+        results.flush()
+        return False
+
+    print('all good (lowerGaps: {lowerGaps} upperGaps: {upperGaps})')
+    print('all good (lowerGaps: {lowerGaps} upperGaps: {upperGaps})', file=results)
 
     return True
 

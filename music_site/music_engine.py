@@ -1685,9 +1685,7 @@ class MusicEngine:
         roles: tuple[int, ...] = tuple(roleList)
 
         root: str = ''
-        third: str = ''
         fifth: str = ''
-        seventh: str = ''
 
         # availablePitches is only consulted as a last resort
         availablePitches: list[str] = []
@@ -1706,8 +1704,8 @@ class MusicEngine:
                 (1, 4, 5),
                 (1, 3, 6)):
             root = chPitch[1]
-            third = chPitch[roles[1]]  # we treat 2, 3, or 4 as the third
             fifth = chPitch[roles[2]]  # we treat 5 or 6 as the fifth
+            other: str = chPitch[roles[1]]
 
             if lead.pitch.name == root:
                 # Lead is on root, take doubled root an octave below
@@ -1719,14 +1717,14 @@ class MusicEngine:
                         # still too low, just sing the same note (root) as the lead
                         bass = MusicEngine.copyNote(lead)
 
-            elif lead.pitch.name == third:
-                # Lead is on third, take root a 10th below
+            elif lead.pitch.name == other:
+                # Lead is on 2, 3, or 4, take root a 9th, 10th or 11th below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
                 if partRange.isTooLow(bass.pitch):
-                    # Take fifth (below the lead's third)
+                    # Take fifth (below the lead note)
                     bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
-                        # Fine, take the root just below the lead
+                        # Fine, take the root below the lead
                         bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
             elif lead.pitch.name == fifth:
@@ -1753,92 +1751,65 @@ class MusicEngine:
                 )
 
         elif len(roles) == 4:
+            # we only care about root and fifth
             if roles in (
                     (1, 3, 5, 7),
                     (1, 4, 5, 7),
                     (1, 2, 5, 7)):
-                # 7th chord: no doubling the root.  Note that we handle sus2 and sus4 as
-                # if the 2 or 4 is the third.
+                # 7th chord: no doubling the root.
                 root = chPitch[1]
-                third = chPitch[roles[1]]
                 fifth = chPitch[5]
-                seventh = chPitch[7]
             elif roles == (1, 3, 5, 6):
-                # 6th chord: treat the 6th like a 7th. There are lots of ways to do this,
+                # 6th chord: There are lots of ways to do this,
                 # depending on context and what type of 6th chord it is (for example
                 # we could treat a maj6 as a 7th chord rooted on chPitch[6]).
                 # This is what we will do for now.
                 root = chPitch[1]
-                third = chPitch[3]
                 fifth = chPitch[5]
-                seventh = chPitch[6]
             elif roles == (1, 5, 7, 9):
-                # 9th chord with no third: Treat the 9th as the third
+                # 9th chord with no third
                 root = chPitch[1]
-                third = chPitch[9]
                 fifth = chPitch[5]
-                seventh = chPitch[7]
             elif roles == (3, 5, 7, 9):
                 # 9th chord with no root: Treat it as a 7th chord rooted at 3
                 root = chPitch[3]
-                third = chPitch[5]
                 fifth = chPitch[7]
-                seventh = chPitch[9]
             elif roles == (1, 7, 9, 11):
-                # 11th chord with no third/fifth: Treat 9 and 11 as 3 and 5
+                # 11th chord with no third/fifth: treat 11 as 5
                 root = chPitch[1]
-                third = chPitch[9]
                 fifth = chPitch[11]
-                seventh = chPitch[7]
             elif roles == (3, 7, 9, 11):
                 # 11th chord with no root/fifth: Treat as if rooted at 9 (and weird)
                 root = chPitch[9]
-                third = chPitch[11]
                 fifth = chPitch[7]
-                seventh = chPitch[3]
             elif roles == (5, 7, 9, 11):
                 # 11th chord with no root/third: Treat it as a 7th chord rooted at 5
                 root = chPitch[5]
-                third = chPitch[7]
                 fifth = chPitch[9]
-                seventh = chPitch[11]
             elif roles == (1, 9, 11, 13):
                 # 13th chord with no third/fifth/seventh: Treat as 7th chord rooted at 9
                 root = chPitch[9]
-                third = chPitch[11]
                 fifth = chPitch[13]
-                seventh = chPitch[1]
             elif roles == (3, 9, 11, 13):
-                # 13th chord with no root/fifth/seventh: Treat as rooted a 9, I think.
-                # It's weird. The "seventh" ends up being a sort of 9th.
+                # 13th chord with no root/fifth/seventh: Treat as rooted at 9, I think.
+                # It's weird.
                 root = chPitch[9]
-                third = chPitch[11]
                 fifth = chPitch[13]
-                seventh = chPitch[3]
             elif roles == (5, 9, 11, 13):
                 # 13th chord with no root/third/seventh: Treat as 7sus2 rooted on 5
                 root = chPitch[5]
-                third = chPitch[13]
                 fifth = chPitch[9]
-                seventh = chPitch[11]
             elif roles == (7, 9, 11, 13):
                 # 13th chord with no root/third/fifth: Treat it as a 7th chord rooted at 7
                 root = chPitch[7]
-                third = chPitch[9]
                 fifth = chPitch[11]
-                seventh = chPitch[13]
             elif len(roles) == 4 and 1 in roles and 3 in roles and 5 in roles:
-                # triad add <something>: treat it like triad add 7 (i.e. 7th chord)
+                # triad add <something>
                 root = chPitch[1]
-                third = chPitch[3]
                 fifth = chPitch[5]
-                for role in roles:
-                    if role not in (1, 3, 5):
-                        seventh = chPitch[role]
-                        break
             else:
-                # hope for root and/or fifth to be sufficient, but we will use
-                # availablePitches if not.
+                # hope for root and/or fifth to be there, but we will use
+                # availablePitches if we have to.
                 if 1 in chPitch:
                     root = chPitch[1]
                 if 5 in chPitch:
@@ -2467,3 +2438,53 @@ class MusicEngine:
             pass
         # should we do anything for mixed arrangements?  I should look at some.
         # Straight SATB is simple, but...
+
+    @staticmethod
+    def countHarmonyGaps(score: m21.stream.Score) -> int:
+        # if not a (non-empty) shopped score, return -1
+        parts: list[m21.stream.Part] = list(score[m21.stream.Part])
+        if len(parts) != 2:
+            return -1
+
+        for partIdx, part in enumerate(parts):
+            measures: list[m21.stream.Measure] = list(part[m21.stream.Measure])
+            if not measures:
+                return -1
+
+            for measure in measures:
+                voices: list[m21.stream.Voice] = list(measure[m21.stream.Voice])
+                if len(voices) != 2:
+                    return -1
+                if partIdx == 0:
+                    if voices[0].id != 'tenor':
+                        return -1
+                    if voices[1].id != 'lead':
+                        return -1
+                elif partIdx == 1:
+                    if voices[0].id != 'bari':
+                        return -1
+                    if voices[1].id != 'bass':
+                        return -1
+
+        # for every lead note, see whether there are notes or spaces in the corresponding
+        # tenor/bari/bass voices.  Count the spaces (gaps).
+
+        # assume that you can check for a filled-in harmony by looking at the tenor part, since
+        # we're careful to never partly fill in only one or two harmony parts.
+        harmonyGaps: int = 0
+        topStaff: m21.stream.Part = parts[0]
+        for measure in topStaff:
+            voices = list(measure[m21.stream.Voice])
+            tenorVoice = voices[0]
+            leadVoice = voices[1]
+            for leadNote in leadVoice[m21.note.Note]:
+                offsetInMeasure: OffsetQL = leadNote.getOffsetInHierarchy(measure)
+                for tenorNoteOrRest in tenorVoice[(m21.note.Note, m21.note.Rest)]:
+                    if tenorNoteOrRest.getOffsetInHierarchy(measure) == offsetInMeasure:
+                        if isinstance(tenorNoteOrRest, m21.note.Rest):
+                            harmonyGaps += 1
+                        # go on to the next leadNote in any case; we found the matching
+                        # tenor note/rest
+                        break
+
+        return harmonyGaps

@@ -62,6 +62,11 @@ def runTheTest(inputPath: Path) -> bool:
 #     lowerShop.write(fp=krnLowerPath, fmt='humdrum', makeNotation=False)
 #     upperShop.write(fp=krnUpperPath, fmt='humdrum', makeNotation=False)
 
+    lowerGaps: int = MusicEngine.countHarmonyGaps(lowerShop)
+    upperGaps: int = MusicEngine.countHarmonyGaps(upperShop)
+    print(f'lowerGaps = {lowerGaps}')
+    print(f'upperGaps = {upperGaps}')
+
     # show scores via MusicXML (without any makeNotation fixups)
     print('displaying both shopped scores (via MusicXML/Musescore)')
     score1.show('musicxml.pdf', makeNotation=False)
