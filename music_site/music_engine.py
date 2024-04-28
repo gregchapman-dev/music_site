@@ -466,15 +466,11 @@ class MusicEngine:
     @staticmethod
     def copyNote(note: m21.note.Note) -> m21.note.Note:
         output: m21.note.Note = deepcopy(note)
+
         output.lyrics = []
         output._tie = None
         if output.pitch.accidental is not None:
             output.pitch.accidental.displayStatus = None
-
-        if hasattr(output, 'music_engine_badly_spelled_pitch'):
-            del output.music_engine_badly_spelled_pitch  # type: ignore
-        if hasattr(output, 'music_engine_well_spelled_pitch'):
-            del output.music_engine_well_spelled_pitch  # type: ignore
 
         return output
 
@@ -666,7 +662,6 @@ class MusicEngine:
                 )
 
                 partialScore.transpose(interval, inPlace=True)
-                MusicEngine.transposeAlternateSpellings(partialScore, interval)
 
     STEM_DIRECTION: dict[PartName, str] = {
         PartName.Tenor: 'up',
@@ -757,7 +752,7 @@ class MusicEngine:
                 thisChordMeas.insert(0, lastChord2)
 
     @staticmethod
-    def fixupBadlySpelledNotes(melody: m21.stream.Part, chords: m21.stream.Part):
+    def fixupBadlySpelledChordSymbols(melody: m21.stream.Part, chords: m21.stream.Part):
         # note that melody and chords may or may not be the same part.
         for nc in melody[m21.note.NotRest]:
             if isinstance(nc, m21.harmony.ChordSymbol):
@@ -769,47 +764,27 @@ class MusicEngine:
             if t.TYPE_CHECKING:
                 assert isinstance(nc, m21.note.Note)
             notePitch: m21.pitch.Pitch = deepcopy(nc.pitch)
-            chord = MusicEngine.findChordAtOffset(chords, offset)
-            if chord is None:
+            cs = MusicEngine.findChordSymbolAtOffset(chords, offset)
+            if cs is None:
                 continue
 
-            chordPitchNames: list[str] = [p.name for p in chord.pitches]
+            chordPitchNames: list[str] = [p.name for p in cs.pitches]
             if notePitch.name in chordPitchNames:
                 continue
 
             # check for enharmonic equivalence
             notePitch.getEnharmonic(inPlace=True)
             if notePitch.name in chordPitchNames:
-                nc.music_engine_badly_spelled_pitch = deepcopy(nc.pitch)  # type: ignore
-                nc.music_engine_well_spelled_pitch = deepcopy(notePitch)  # type: ignore
-                nc.pitch = notePitch
+                intv = m21.interval.Interval(notePitch, nc.pitch)
+                cs.transpose(intv, inPlace=True)
                 continue
 
             # check again (some pitches cycle between three enharmonics)
             notePitch.getEnharmonic(inPlace=True)
             if notePitch.name in chordPitchNames:
-                nc.music_engine_badly_spelled_pitch = deepcopy(nc.pitch)  # type: ignore
-                nc.music_engine_well_spelled_pitch = deepcopy(notePitch)  # type: ignore
-                nc.pitch = notePitch
+                intv = m21.interval.Interval(notePitch, nc.pitch)
+                cs.transpose(intv, inPlace=True)
                 continue
-
-    @staticmethod
-    def transposeAlternateSpellings(stream: m21.stream.Stream, interval: m21.interval.Interval):
-        for nc in stream[m21.note.Note]:
-            if hasattr(nc, 'music_engine_badly_spelled_pitch'):
-                nc.music_engine_badly_spelled_pitch.transpose(  # type: ignore
-                    interval, inPlace=True
-                )
-            if hasattr(nc, 'music_engine_well_spelled_pitch'):
-                nc.music_engine_well_spelled_pitch.transpose(  # type: ignore
-                    interval, inPlace=True
-                )
-
-    @staticmethod
-    def putBackAnyBadlySpelledNotes(stream: m21.stream.Stream):
-        for nc in stream[m21.note.Note]:
-            if hasattr(nc, 'music_engine_badly_spelled_pitch'):
-                nc.pitch = deepcopy(nc.music_engine_badly_spelled_pitch)  # type: ignore
 
     @staticmethod
     def removeAllBeams(leadSheet: m21.stream.Score):
@@ -861,7 +836,7 @@ class MusicEngine:
         # in a Em7#5 chord.  The #5 in an Em7#5 is a B#, which is enharmonically
         # equivalent to C, so fix the melody note's spelling to be B#.  This
         # helps simplify the harmonization code, and everyone likes good spelling.
-        MusicEngine.fixupBadlySpelledNotes(melody, chords)
+        MusicEngine.fixupBadlySpelledChordSymbols(melody, chords)
 
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
@@ -942,9 +917,6 @@ class MusicEngine:
         # Put regularized beams (and badly spelled lead notes) back in
         for part in shopped.parts:
             m21.stream.makeNotation.makeBeams(part, inPlace=True, setStemDirections=False)
-
-        # This ends up screwing up accidental display, I'm not sure why
-        # MusicEngine.putBackAnyBadlySpelledNotes(shopped)
 
         return shopped
 
@@ -2333,11 +2305,21 @@ class MusicEngine:
         stream: m21.stream.Stream,
         offset: OffsetQL
     ) -> Chord | None:
+        cs: m21.harmony.ChordSymbol | None = MusicEngine.findChordSymbolAtOffset(stream, offset)
+        if cs is not None:
+            return Chord(cs)  # makes a deepcopy of cs
+        return None
+
+    @staticmethod
+    def findChordSymbolAtOffset(
+        stream: m21.stream.Stream,
+        offset: OffsetQL
+    ) -> m21.harmony.ChordSymbol | None:
         for cs in stream[m21.harmony.ChordSymbol]:
             startChord: OffsetQL = cs.getOffsetInHierarchy(stream)
             endChord: OffsetQL = startChord + cs.duration.quarterLength
             if startChord <= offset < endChord:
-                return Chord(cs)
+                return cs  # no deepcopy, this is the ChordSymbol that is in the stream
 
         return None
 
