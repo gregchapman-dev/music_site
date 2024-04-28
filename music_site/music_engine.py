@@ -770,20 +770,31 @@ class MusicEngine:
 
             chordPitchNames: list[str] = [p.name for p in cs.pitches]
             if notePitch.name in chordPitchNames:
+                cs.we_like_this_spelling = True  # type: ignore
                 continue
 
             # check for enharmonic equivalence
             notePitch.getEnharmonic(inPlace=True)
             if notePitch.name in chordPitchNames:
-                intv = m21.interval.Interval(notePitch, nc.pitch)
-                cs.transpose(intv, inPlace=True)
+                if hasattr(cs, 'we_like_this_spelling'):
+                    # let's fix the melody spelling to match the good chord symbol spelling
+                    nc.pitch = notePitch
+                else:
+                    intv = m21.interval.Interval(notePitch, nc.pitch)
+                    cs.transpose(intv, inPlace=True)
+                    cs.we_like_this_spelling = True  # type: ignore
                 continue
 
             # check again (some pitches cycle between three enharmonics)
             notePitch.getEnharmonic(inPlace=True)
             if notePitch.name in chordPitchNames:
-                intv = m21.interval.Interval(notePitch, nc.pitch)
-                cs.transpose(intv, inPlace=True)
+                if hasattr(cs, 'we_like_this_spelling'):
+                    # let's fix the melody spelling to match the good chord symbol spelling
+                    nc.pitch = notePitch
+                else:
+                    intv = m21.interval.Interval(notePitch, nc.pitch)
+                    cs.transpose(intv, inPlace=True)
+                    cs.we_like_this_spelling = True  # type: ignore
                 continue
 
     @staticmethod
