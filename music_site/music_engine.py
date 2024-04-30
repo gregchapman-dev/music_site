@@ -1437,8 +1437,7 @@ class MusicEngine:
         orderedRolesToReplace: tuple[int, ...]
     ):
         bassPitchName: str = chord.preferredBassPitchName
-        if not bassPitchName or bassPitchName == leadPitchName:
-            # lead is already on the /bass note, the bass will have to go somewhere else
+        if not bassPitchName:
             return
 
         # if bassPitchName is already in the chord (i.e. it's just an inversion, not
@@ -1715,8 +1714,8 @@ class MusicEngine:
                 continue
             availablePitches.append(p)
 
-        # Triad: you can double the root if there's no "extra" /bass note
-        if preferredBass:
+        if preferredBass and lead.pitch.name != preferredBass:
+            # bass always gets the preferredBass, unless the lead is already on it.
             bass = MusicEngine.makeNote(preferredBass, copyFrom=lead, below=lead)
             MusicEngine.moveIntoRange(bass, partRange)
         elif roles in (
@@ -1724,6 +1723,7 @@ class MusicEngine:
                 (1, 2, 5),
                 (1, 4, 5),
                 (1, 3, 6)):
+            # Triad: you can double the root if there's no "extra" /bass note
             root = chPitch[1]
             fifth = chPitch[roles[2]]  # we treat 5 or 6 as the fifth
             other: str = chPitch[roles[1]]
