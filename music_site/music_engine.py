@@ -1921,7 +1921,11 @@ class MusicEngine:
                                 bass = fifthAboveLead
                                 break
 
-                    raise MusicEngineException('lead not on root/fifth; couldn\'t find bass')
+                    # OK, give up completely, and use the root, positioned in bass range,
+                    # no matter how far from lead.  The lead note must be _way_ out of range.
+                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                    MusicEngine.moveIntoRange(bass, partRange)
+                    break
 
             else:
                 # ignore root/third/fifth/seventh and just use availablePitches
