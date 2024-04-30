@@ -756,14 +756,20 @@ class MusicEngine:
         # note that melody and chords may or may not be the same part.
         for nc in melody[m21.note.NotRest]:
             if isinstance(nc, m21.harmony.ChordSymbol):
+                # skip chord symbols
                 continue
-            offset: OffsetQL = nc.getOffsetInHierarchy(melody)
-            if isinstance(nc, m21.chord.Chord):
-                nc = nc.notes[0]
+            if not isinstance(nc, (m21.note.Note, m21.chord.Chord)):
+                # skip anything that is not a Note or a Chord
+                continue
 
-            if t.TYPE_CHECKING:
-                assert isinstance(nc, m21.note.Note)
-            notePitch: m21.pitch.Pitch = deepcopy(nc.pitch)
+            offset: OffsetQL = nc.getOffsetInHierarchy(melody)
+            n: m21.note.Note
+            if isinstance(nc, m21.chord.Chord):
+                n = nc.notes[-1]
+            else:
+                n = nc
+
+            notePitch: m21.pitch.Pitch = deepcopy(n.pitch)
             cs = MusicEngine.findChordSymbolAtOffset(chords, offset)
             if cs is None:
                 continue
@@ -778,9 +784,14 @@ class MusicEngine:
             if notePitch.name in chordPitchNames:
                 if hasattr(cs, 'we_like_this_spelling'):
                     # let's fix the melody spelling to match the good chord symbol spelling
-                    nc.pitch = notePitch
+                    if isinstance(nc, m21.chord.Chord):
+                        nc.notes[-1].pitch = notePitch
+                    else:
+                        if t.TYPE_CHECKING:
+                            assert isinstance(nc, m21.note.Note)
+                        nc.pitch = notePitch
                 else:
-                    intv = m21.interval.Interval(notePitch, nc.pitch)
+                    intv = m21.interval.Interval(notePitch, n.pitch)
                     cs.transpose(intv, inPlace=True)
                     cs.we_like_this_spelling = True  # type: ignore
                 continue
@@ -790,9 +801,14 @@ class MusicEngine:
             if notePitch.name in chordPitchNames:
                 if hasattr(cs, 'we_like_this_spelling'):
                     # let's fix the melody spelling to match the good chord symbol spelling
-                    nc.pitch = notePitch
+                    if isinstance(nc, m21.chord.Chord):
+                        nc.notes[-1].pitch = notePitch
+                    else:
+                        if t.TYPE_CHECKING:
+                            assert isinstance(nc, m21.note.Note)
+                        nc.pitch = notePitch
                 else:
-                    intv = m21.interval.Interval(notePitch, nc.pitch)
+                    intv = m21.interval.Interval(notePitch, n.pitch)
                     cs.transpose(intv, inPlace=True)
                     cs.we_like_this_spelling = True  # type: ignore
                 continue
