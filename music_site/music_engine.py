@@ -217,6 +217,7 @@ class FourNotes(Sequence):
 
         for n in self:
             if isinstance(n, m21.note.Note):
+                # 888 use fancier enharmonic checks (for lead note, self[1])
                 if n.pitch.name in roleToPitchNamesWithoutBass.values():
                     if doubleTheRoot and n.pitch.name == roleToPitchNamesWithoutBass.get(1, None):
                         # don't remove the root until you see the root a second time
@@ -1116,7 +1117,9 @@ class MusicEngine:
                 offset = el.getOffsetInHierarchy(mMeas)
                 if isinstance(el, m21.chord.Chord) and not isinstance(el, m21.harmony.ChordSymbol):
                     # Don't put a chord in the melody; put the top note from the chord instead
-                    el = deepcopy(el.notes[-1])
+                    note = deepcopy(el.notes[-1])
+                    note.lyrics = deepcopy(el.lyrics)
+                    el = note
                 else:
                     el = deepcopy(el)
                 if isinstance(el, m21.note.NotRest):
@@ -1331,6 +1334,7 @@ class MusicEngine:
                     currMeasure[partName].insert(offset, noChordRest)
                     continue
 
+                # 888 use fancier enharmonic check
                 if leadNote.pitch.name not in MusicEngine.getChordVocalParts(
                         chord, leadNote.pitch.name).values():
                     # lead is not on a pillar chord note, fill in bass/tenor/bari with
@@ -1500,6 +1504,7 @@ class MusicEngine:
             # unless the lead is on 1, 3, or 5, in which case return
             # lead/9/11/13 (this is a guess; lead/7/11/13 et al are
             # just as likely correct).
+            # 888 use fancier enharmonic check
             if leadPitchName == allOfThem[1]:
                 output[1] = allOfThem[1]
             elif leadPitchName == allOfThem[3]:
@@ -1521,6 +1526,7 @@ class MusicEngine:
             # 11th chord of some sort.
             # Vol 2 Figure 14.18 likes 5/7/9/11.
             # But if lead is on 1 or 3, we will return lead/7/9/11
+            # 888 use fancier enharmonic check
             if leadPitchName == allOfThem[1]:
                 output[1] = allOfThem[1]
             elif leadPitchName == allOfThem[3]:
@@ -1541,6 +1547,7 @@ class MusicEngine:
             # 9th chord
             # Vol 2 Figure 14.30 likes 3, 5, 7, 9.
             # But if lead is on 1, we will return 1/5/7/9.
+            # 888 use fancier enharmonic check
             if leadPitchName == allOfThem[1]:
                 output[1] = allOfThem[1]
             else:
@@ -1710,10 +1717,12 @@ class MusicEngine:
         # availablePitches is only consulted as a last resort
         availablePitches: list[str] = []
         for p in chPitch.values():
+            # 888 use fancier enharmonic check
             if p == lead.pitch.name:
                 continue
             availablePitches.append(p)
 
+        # 888 use fancier enharmonic check
         if preferredBass and lead.pitch.name != preferredBass:
             # bass always gets the preferredBass, unless the lead is already on it.
             bass = MusicEngine.makeNote(preferredBass, copyFrom=lead, below=lead)
@@ -1728,6 +1737,7 @@ class MusicEngine:
             fifth = chPitch[roles[2]]  # we treat 5 or 6 as the fifth
             other: str = chPitch[roles[1]]
 
+            # 888 use fancier enharmonic check
             if lead.pitch.name == root:
                 # Lead is on root, take doubled root an octave below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
@@ -1738,6 +1748,7 @@ class MusicEngine:
                         # still too low, just sing the same note (root) as the lead
                         bass = MusicEngine.copyNote(lead)
 
+            # 888 use fancier enharmonic check
             elif lead.pitch.name == other:
                 # Lead is on 2, 3, or 4, take root a 9th, 10th or 11th below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
@@ -1748,6 +1759,7 @@ class MusicEngine:
                         # Fine, take the root below the lead
                         bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
+            # 888 use fancier enharmonic check
             elif lead.pitch.name == fifth:
                 # Lead is on fifth, take root below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
@@ -1763,7 +1775,10 @@ class MusicEngine:
                         voice=measure[PartName.Lead],
                         offset=offset,
                     )
-
+            elif lead.pitch.name == preferredBass:
+                # lead is on /bass note, take the root
+                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                MusicEngine.moveIntoRange(bass, partRange)
             else:
                 # Should never happen, because we wouldn't call this routine if
                 # the lead wasn't on a chord note.
@@ -1836,6 +1851,7 @@ class MusicEngine:
                 if 5 in chPitch:
                     fifth = chPitch[5]
 
+            # 888 use fancier enharmonic check
             if root and fifth and lead.pitch.name == root:
                 # put bass on fifth below lead, or raise lead to fifth and take lead's root)
                 bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
@@ -1850,12 +1866,14 @@ class MusicEngine:
                         offset=offset,
                     )
 
+            # 888 use fancier enharmonic check
             elif root and fifth and lead.pitch.name == fifth:
                 # bass on root
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooHigh(bass.pitch):
                     bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
 
+            # 888 use fancier enharmonic check
             elif (root and lead.pitch.name != root) or (fifth and lead.pitch.name != fifth):
                 while True:
                     # we will only iterate once, breaking out if we find a good note
@@ -1907,13 +1925,13 @@ class MusicEngine:
 
             else:
                 # ignore root/third/fifth/seventh and just use availablePitches
-                if len(availablePitches) < 3:
-                    raise MusicEngineException('too few available pitches: {chPitch}')
+                if len(availablePitches) < 2:
+                    raise MusicEngineException(f'too few available pitches: {chPitch}')
                 bass = MusicEngine.makeNote(availablePitches[0], copyFrom=lead, below=lead)
                 MusicEngine.moveIntoRange(bass, partRange)
         else:
-            if len(availablePitches) < 3:
-                raise MusicEngineException('too few available pitches: {chPitch}')
+            if len(availablePitches) < 2:
+                raise MusicEngineException(f'too few available pitches: {chPitch}')
             bass = MusicEngine.makeNote(availablePitches[0], copyFrom=lead, below=lead)
             MusicEngine.moveIntoRange(bass, partRange)
 
@@ -2101,6 +2119,7 @@ class MusicEngine:
 
     @staticmethod
     def orderPitchNamesStartingAbove(pitches: list[str], baseName: str) -> list[str]:
+        # 888 doesn't need fancier enharmonic check, since it uses semitones
         def semitonesAboveBaseName(pitchName: str) -> int:
             pitch = m21.pitch.Pitch(pitchName)
             basePitch = m21.pitch.Pitch(baseName)
