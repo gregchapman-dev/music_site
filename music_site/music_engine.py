@@ -37,18 +37,11 @@ class PitchName:
         self.pitch: m21.pitch.Pitch = m21.pitch.Pitch(name)
 
     def __eq__(self, other) -> bool:
-        otherPitch: m21.pitch.Pitch
-        if isinstance(other, PitchName):
-            otherPitch = other.pitch
-        elif isinstance(other, str):
-            otherPitch = m21.pitch.Pitch(other)
-        else:
-            raise MusicEngineException('bad other PitchName')
-
-        if self.pitch.pitchClass == otherPitch.pitchClass:
+        if not isinstance(other, PitchName):
+            return False
+        if self.pitch.pitchClass == other.pitch.pitchClass:
             # ignores octave, because pitch.name ignores octave
             return True
-
         return False
 
     def __str__(self) -> str:
@@ -1303,7 +1296,6 @@ class MusicEngine:
                     currMeasure[partName].insert(offset, noChordRest)
                     continue
 
-                # 888 use fancier enharmonic check
                 leadPitchName: PitchName = PitchName(leadNote.pitch.name)
                 chordPitchNames = MusicEngine.getChordVocalParts(
                     chord, leadPitchName
@@ -1487,7 +1479,6 @@ class MusicEngine:
             # unless the lead is on 1, 3, or 5, in which case return
             # lead/9/11/13 (this is a guess; lead/7/11/13 et al are
             # just as likely correct).
-            # 888 use fancier enharmonic check
             if leadPitchName == allOfThem[1]:
                 output[1] = allOfThem[1]
             elif leadPitchName == allOfThem[3]:
@@ -1509,7 +1500,6 @@ class MusicEngine:
             # 11th chord of some sort.
             # Vol 2 Figure 14.18 likes 5/7/9/11.
             # But if lead is on 1 or 3, we will return lead/7/9/11
-            # 888 use fancier enharmonic check
             if leadPitchName == allOfThem[1]:
                 output[1] = allOfThem[1]
             elif leadPitchName == allOfThem[3]:
@@ -1530,7 +1520,6 @@ class MusicEngine:
             # 9th chord
             # Vol 2 Figure 14.30 likes 3, 5, 7, 9.
             # But if lead is on 1, we will return 1/5/7/9.
-            # 888 use fancier enharmonic check
             if leadPitchName == allOfThem[1]:
                 output[1] = allOfThem[1]
             else:
@@ -1688,12 +1677,10 @@ class MusicEngine:
         # availablePitches is only consulted as a last resort
         availablePitches: list[PitchName] = []
         for p in chPitch.values():
-            # 888 use fancier enharmonic check
             if p == leadPitchName:
                 continue
             availablePitches.append(p)
 
-        # 888 use fancier enharmonic check
         if preferredBass and leadPitchName != preferredBass:
             # bass always gets the preferredBass, unless the lead is already on it.
             bass = MusicEngine.makeNote(preferredBass, copyFrom=lead, below=lead)
@@ -1708,7 +1695,6 @@ class MusicEngine:
             fifth = chPitch[roles[2]]  # we treat 5 or 6 as the fifth
             other: PitchName = chPitch[roles[1]]
 
-            # 888 use fancier enharmonic check
             if leadPitchName == root:
                 # Lead is on root, take doubled root an octave below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
@@ -1719,7 +1705,6 @@ class MusicEngine:
                         # still too low, just sing the same note (root) as the lead
                         bass = MusicEngine.copyNote(lead)
 
-            # 888 use fancier enharmonic check
             elif leadPitchName == other:
                 # Lead is on 2, 3, or 4, take root a 9th, 10th or 11th below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
@@ -1730,22 +1715,13 @@ class MusicEngine:
                         # Fine, take the root below the lead
                         bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
-            # 888 use fancier enharmonic check
             elif leadPitchName == fifth:
                 # Lead is on fifth, take root below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
-                if partRange.isTooLow(bass.pitch):
-                    # Ugh. Lead must be really low. Push the lead up a 4th to
-                    # the next higher root, and take the lead note yourself.
-                    bass = MusicEngine.copyNote(lead)  # fifth, assume it's in bass range
-                    lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
-                        root,
-                        copyFrom=lead,
-                        replacedNote=lead,
-                        above=bass,
-                        voice=measure[PartName.Lead],
-                        offset=offset,
-                    )
+                if partRange.isOutOfRange(bass.pitch):
+                    # Ugh. Lead must be really crazy. Force the bass into range,
+                    # even if it is above the lead.
+                    MusicEngine.moveIntoRange(bass, partRange)
             elif leadPitchName == preferredBass:
                 # lead is on /bass note, take the root
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
@@ -1822,29 +1798,18 @@ class MusicEngine:
                 if 5 in chPitch:
                     fifth = chPitch[5]
 
-            # 888 use fancier enharmonic check
             if root and fifth and leadPitchName == root:
-                # put bass on fifth below lead, or raise lead to fifth and take lead's root)
+                # put bass on fifth below lead, or above lead if necessary
                 bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
-                    bass = MusicEngine.copyNote(lead)  # assume it's in bass range
-                    lead = MusicEngine.makeAndInsertNote(  # assume it's in lead range
-                        fifth,
-                        copyFrom=lead,
-                        replacedNote=lead,
-                        above=bass,
-                        voice=measure[PartName.Lead],
-                        offset=offset,
-                    )
+                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, above=lead)
 
-            # 888 use fancier enharmonic check
             elif root and fifth and leadPitchName == fifth:
                 # bass on root
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooHigh(bass.pitch):
                     bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
 
-            # 888 use fancier enharmonic check
             elif (root and leadPitchName != root) or (fifth and leadPitchName != fifth):
                 while True:
                     # we will only iterate once, breaking out if we find a good note
@@ -1898,10 +1863,10 @@ class MusicEngine:
                     # availablePitches[0] if no root or fifth), positioned in bass
                     # range, no matter how far from lead.  The lead note must be
                     # _way_ out of range.
-                    if root:
+                    if root in availablePitches:
                         bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                         MusicEngine.moveIntoRange(bass, partRange)
-                    elif fifth:
+                    elif fifth in availablePitches:
                         bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                         MusicEngine.moveIntoRange(bass, partRange)
                     else:
