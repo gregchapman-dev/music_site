@@ -716,17 +716,40 @@ class MusicEngine:
             if lastChordMeas is thisChordMeas:
                 lastChord.duration.quarterLength = qlDiff
             else:
-                # split qlDiff into two parts:
-                # 1. the available room in lastChordMeas, and
-                # 2. the remainder (which will land in thisChordMeas)
-                thisChordOffsetInMeas: OffsetQL = cs.getOffsetInHierarchy(thisChordMeas)
-                qlDiff1: OffsetQL = qlDiff - thisChordOffsetInMeas
-                qlDiff2: OffsetQL = qlDiff - qlDiff1
-                lastChord.duration.quarterLength = qlDiff1
-                if qlDiff2 != 0:
-                    lastChord2: m21.harmony.ChordSymbol = deepcopy(lastChord)
-                    lastChord2.duration.quarterLength = qlDiff2
-                    thisChordMeas.insert(0, lastChord2)
+                # loop over all the measures from lastChordMeas through thisChordMeas,
+                # doling out a deepcopy of lastChord of an appropriate duration to each
+                # measure.  lastChordMeas gets duration from lastChord offset to end
+                # of lastChordMeas, the bulk of the measures get a full measure duration,
+                # and thisChordMeas gets whatever is left (which should be the thisChord's
+                # offset in thisChordMeas).
+                fullMeasuresNow: bool = False
+                for meas in piece[m21.stream.Measure]:
+                    if meas is lastChordMeas:
+                        lastChordOffsetInMeas: OffsetQL = (
+                            lastChord.getOffsetInHierarchy(lastChordMeas)
+                        )
+                        ql: OffsetQL = lastChordMeas.quarterLength - lastChordOffsetInMeas
+                        lastChord.quarterLength = ql
+                        # no deepcopy or insertion because lastChord is already positioned
+                        fullMeasuresNow = True
+                        continue
+
+                    if meas is thisChordMeas:
+                        fullMeasuresNow = False
+                        thisChordOffsetInMeas: OffsetQL = cs.getOffsetInHierarchy(thisChordMeas)
+                        if thisChordOffsetInMeas > 0:
+                            chord = deepcopy(lastChord)
+                            chord.quarterLength = thisChordOffsetInMeas
+                            meas.insert(0, chord)
+                        # we're done, so break out of measure loop
+                        break
+
+                    if fullMeasuresNow:
+                        # we only get here for measures between lastChordMeas and thisChordMeas
+                        chord = deepcopy(lastChord)
+                        chord.quarterLength = meas.quarterLength
+                        meas.insert(0, chord)
+
             lastChord = cs
 
         # on exit from the loop, all but lastChord has been handled
@@ -871,15 +894,15 @@ class MusicEngine:
         if melody is None or chords is None:
             raise MusicEngineException('not a useable leadsheet (no melody, or no chords)')
 
+        # more fixups to the leadsheet score
+        M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
+
         # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
         # duration == 0 or 1, which doesn't help us find the ChordSymbol that has a
         # time range that contains a particular offset.  We have our own copy of this,
         # with an added "bugfix" that splits chordsyms across barlines, so the new
         # chordsym duration doesn't push the barline out.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
-
-        # more fixups to the leadsheet score
-        M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
 
         # if a melody note is in the chord enharmonically, respell the
         # melody note to be obviously in the chord. e.g. a C melody note
@@ -1983,6 +2006,8 @@ class MusicEngine:
             return
 
         availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
+        if not availablePitchNames:
+            raise MusicEngineException('no available pitches for tenor')
 
         if t.TYPE_CHECKING:
             assert isinstance(lead, m21.note.Note)
@@ -2000,28 +2025,42 @@ class MusicEngine:
             if partRange.isInRange(tenor.pitch):
                 break
 
-        if tenor is None or partRange.isTooLow(tenor.pitch):
+        if t.TYPE_CHECKING:
+            assert tenor is not None
+
+        if partRange.isTooLow(tenor.pitch):
             # try again, an extra octave up
             for p in orderedPitchNames:
                 tenor = MusicEngine.makeNote(p, copyFrom=lead, above=lead, extraOctaves=1)
                 if partRange.isInRange(tenor.pitch):
                     break
 
-        if tenor is None or partRange.isTooHigh(tenor.pitch):
+        if t.TYPE_CHECKING:
+            assert tenor is not None
+
+        if partRange.isTooHigh(tenor.pitch):
             for p in reversed(orderedPitchNames):
                 tenor = MusicEngine.makeNote(p, copyFrom=lead, below=lead)
                 if partRange.isInRange(tenor.pitch):
                     break
 
-        if tenor is None or partRange.isTooHigh(tenor.pitch):
+        if t.TYPE_CHECKING:
+            assert tenor is not None
+
+        if partRange.isTooHigh(tenor.pitch):
             # try again, an extra octave below
             for p in reversed(orderedPitchNames):
                 tenor = MusicEngine.makeNote(p, copyFrom=lead, below=lead, extraOctaves=1)
                 if partRange.isInRange(tenor.pitch):
                     break
 
-        if tenor is None or partRange.isOutOfRange(tenor.pitch):
-            raise MusicEngineException('failed to find a tenor note for a pillar chord')
+        if t.TYPE_CHECKING:
+            assert tenor is not None
+
+        if partRange.isOutOfRange(tenor.pitch):
+            # last resort: the first note above the lead, put in whatever octave works.
+            tenor = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, above=lead)
+            MusicEngine.moveIntoRange(tenor, partRange)
 
         # Specify stem directions explicitly
         tenor.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Tenor]
