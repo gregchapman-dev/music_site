@@ -29,6 +29,35 @@ class MusicEngineException(Exception):
     pass
 
 
+class PitchName:
+    # used instead of pitch.name (str), so we can compare using enharmonic
+    # equality with no octave (pitchClass)
+    def __init__(self, name: str):
+        self.name: str = name
+        self.pitch: m21.pitch.Pitch = m21.pitch.Pitch(name)
+
+    def __eq__(self, other) -> bool:
+        otherPitch: m21.pitch.Pitch
+        if isinstance(other, PitchName):
+            otherPitch = other.pitch
+        elif isinstance(other, str):
+            otherPitch = m21.pitch.Pitch(other)
+        else:
+            raise MusicEngineException('bad other PitchName')
+
+        if self.pitch.pitchClass == otherPitch.pitchClass:
+            # ignores octave, because pitch.name ignores octave
+            return True
+
+        return False
+
+    def __str__(self) -> str:
+        return self.name
+
+    def __repr__(self) -> str:
+        return self.name
+
+
 class ArrangementType (IntEnum):
     UpperVoices = auto()
     # MixedVoices = auto()  # not yet supported; user might need to specify part ranges?
@@ -63,8 +92,8 @@ class Chord(Sequence):
     ):
         self.sym: m21.harmony.ChordSymbol = deepcopy(cs)
         self.pitches: list[m21.pitch.Pitch] = []
-        self.roleToPitchNames: dict[int, str] = {}
-        self.preferredBassPitchName: str = ''  # may not be mentioned anywhere else in self
+        self.roleToPitchNames: dict[int, PitchName] = {}
+        self.preferredBassPitchName: PitchName | None = None
 
         if isinstance(self.sym, m21.harmony.NoChord):
             return
@@ -75,7 +104,7 @@ class Chord(Sequence):
             # Stash off it's name as the preferred bass pitchName, and
             # recompute the chord pitches as if there was no bass specified
             # (by setting the bass to the root).
-            self.preferredBassPitchName = bass.name
+            self.preferredBassPitchName = PitchName(bass.name)
             self.sym.bass(self.sym.root())
             MusicEngine._updatePitches(self.sym)
 
@@ -99,18 +128,18 @@ class Chord(Sequence):
             if p in pitchesForRole:
                 self.pitches.append(p)
 
-        pitchNames: list[str] = [p.name for p in self.pitches]
+        pitchNames: list[PitchName] = [PitchName(p.name) for p in self.pitches]
 
         # loop over pitches and pitchesForRole, moving pitchesForRole elements to match pitches
         role: int = 1
         pitchIdx: int = 0
         while pitchIdx < len(pitchNames):
-            pitchName = pitchNames[pitchIdx]
-            pitchForRole = pitchesForRole[role]
+            pitchName: PitchName = pitchNames[pitchIdx]
+            pitchForRole: m21.pitch.Pitch | None = pitchesForRole[role]
             while pitchForRole is None:
                 role += 1
                 pitchForRole = pitchesForRole[role]
-            if pitchForRole.name == pitchName:
+            if PitchName(pitchForRole.name) == pitchName:
                 role += 1
                 pitchIdx += 1
                 continue
@@ -132,12 +161,12 @@ class Chord(Sequence):
 
         for role, pitchForRole in enumerate(pitchesForRole):
             if pitchForRole is not None:
-                self.roleToPitchNames[role] = pitchForRole.name
+                self.roleToPitchNames[role] = PitchName(pitchForRole.name)
 
     def __len__(self) -> int:
         return len(self.roleToPitchNames)
 
-    def __getitem__(self, idx: int | str | slice) -> t.Any:  # -> str | None (pitchName)
+    def __getitem__(self, idx: int | str | slice) -> t.Any:  # -> PitchName | None (pitchName)
         if isinstance(idx, str):
             if idx not in self._ROLES:
                 keysStr = ', '.join(self._ROLES.keys())
@@ -195,14 +224,14 @@ class FourNotes(Sequence):
         # we don't support slicing (or out-of-range idx)
         raise IndexError(idx)
 
-    def getAvailablePitchNames(self, chord: Chord) -> list[str]:
+    def getAvailablePitchNames(self, chord: Chord) -> list[PitchName]:
         # We assume that bass harmonization doesn't call this, and (also) will have
         # already used the /bass note if specified.
-        availableRoleToPitchNames: dict[int, str] = (
-            MusicEngine.getChordVocalParts(chord, self[PartName.Lead].name)
+        availableRoleToPitchNames: dict[int, PitchName] = (
+            MusicEngine.getChordVocalParts(chord, PitchName(self[PartName.Lead].pitch.name))
         )
-        bass: str = ''
-        roleToPitchNamesWithoutBass: dict[int, str] = copy(availableRoleToPitchNames)
+        bass: PitchName | None = None
+        roleToPitchNamesWithoutBass: dict[int, PitchName] = copy(availableRoleToPitchNames)
         if 0 in roleToPitchNamesWithoutBass:
             bass = roleToPitchNamesWithoutBass[0]
             del roleToPitchNamesWithoutBass[0]
@@ -217,21 +246,22 @@ class FourNotes(Sequence):
 
         for n in self:
             if isinstance(n, m21.note.Note):
-                # 888 use fancier enharmonic checks (for lead note, self[1])
-                if n.pitch.name in roleToPitchNamesWithoutBass.values():
-                    if doubleTheRoot and n.pitch.name == roleToPitchNamesWithoutBass.get(1, None):
-                        # don't remove the root until you see the root a second time
-                        doubleTheRoot = False
-                        continue
+                nPitchName: PitchName = PitchName(n.pitch.name)
+                if nPitchName in roleToPitchNamesWithoutBass.values():
+                    if doubleTheRoot:
+                        if nPitchName == roleToPitchNamesWithoutBass.get(1, None):
+                            # don't remove the root until you see the root a second time
+                            doubleTheRoot = False
+                            continue
 
                     removeRole: int = 0  # there is no role 0
                     for k, v in roleToPitchNamesWithoutBass.items():
-                        if v == n.pitch.name:
+                        if v == nPitchName:
                             removeRole = k
                             break
                     if removeRole != 0:
                         roleToPitchNamesWithoutBass.pop(removeRole, None)
-                elif n.pitch.name == bass:
+                elif nPitchName == bass:
                     pass
                 else:
                     print('n.pitch.name not in availableRoleToPitchNames, why did we use it then?')
@@ -916,7 +946,7 @@ class MusicEngine:
         # in a Em7#5 chord.  The #5 in an Em7#5 is a B#, which is enharmonically
         # equivalent to C, so fix the melody note's spelling to be B#.  This
         # helps simplify the harmonization code, and everyone likes good spelling.
-        MusicEngine.fixupBadlySpelledChordSymbols(melody, chords)
+        # MusicEngine.fixupBadlySpelledChordSymbols(melody, chords)
 
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
@@ -1365,8 +1395,9 @@ class MusicEngine:
                     continue
 
                 # 888 use fancier enharmonic check
+                leadPitchName: PitchName = PitchName(leadNote.pitch.name)
                 chordPitchNames = MusicEngine.getChordVocalParts(
-                    chord, leadNote.pitch.name
+                    chord, leadPitchName
                 ).values()
 
                 if len(chordPitchNames) < 3:
@@ -1377,7 +1408,7 @@ class MusicEngine:
                     currMeasure[partName].insert(offset, space)
                     continue
 
-                if leadNote.pitch.name not in chordPitchNames:
+                if leadPitchName not in chordPitchNames:
                     # lead is not on a pillar chord note, fill in bass/tenor/bari with
                     # spaces (invisible rests).
                     space = m21.note.Rest()
@@ -1476,12 +1507,12 @@ class MusicEngine:
 
     @staticmethod
     def _addBassPitchToVocalParts(
-        vocalPartsInOut: dict[int, str],
+        vocalPartsInOut: dict[int, PitchName],
         chord: Chord,
-        leadPitchName: str,
+        leadPitchName: PitchName,
         orderedRolesToReplace: tuple[int, ...]
     ):
-        bassPitchName: str = chord.preferredBassPitchName
+        bassPitchName: PitchName | None = chord.preferredBassPitchName
         if not bassPitchName:
             return
 
@@ -1527,16 +1558,16 @@ class MusicEngine:
     @staticmethod
     def getChordVocalParts(
         chord: Chord,
-        leadPitchName: str
-    ) -> dict[int, str]:
+        leadPitchName: PitchName
+    ) -> dict[int, PitchName]:
         # This is the place where we decide which of the chord pitches should end
         # up being sung. If the chord is not one we understand, return an empty dict,
         # so that the client will bail on trying to harmonize this chord (for starters,
         # because the lead note is obviously not in it).
         # We return four parts, unless the root is to be doubled, in which case we
         # return three parts.
-        output: dict[int, str] = {}  # key: 0 means 'bass should get this one if possible'
-        allOfThem: dict[int, str] = (
+        output: dict[int, PitchName] = {}  # key: 0 means 'bass should get this one if possible'
+        allOfThem: dict[int, PitchName] = (
             MusicEngine.getChordPitchNames(chord)
         )
         roles: tuple[int, ...] = tuple(allOfThem.keys())
@@ -1664,9 +1695,9 @@ class MusicEngine:
     @staticmethod
     def getChordPitchNames(
         chord: Chord
-    ) -> dict[int, str]:
+    ) -> dict[int, PitchName]:
         # returns all of 'em, even if there are lots of notes in the chord
-        output: dict[int, str] = copy(chord.roleToPitchNames)
+        output: dict[int, PitchName] = copy(chord.roleToPitchNames)
         return output
 
     @staticmethod
@@ -1725,13 +1756,15 @@ class MusicEngine:
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
         bass: m21.note.Note | None = None
 
+        leadPitchName: PitchName = PitchName(lead.pitch.name)
+
         # chordRole (key) is int, where 1 means root of the chord, 3 means third of the chord, etc
-        chPitch: dict[int, str] = MusicEngine.getChordVocalParts(
+        chPitch: dict[int, PitchName] = MusicEngine.getChordVocalParts(
             pillarChord,
-            lead.pitch.name
+            leadPitchName
         )
 
-        preferredBass: str = ''
+        preferredBass: PitchName | None = None
         if 0 in chPitch:
             preferredBass = chPitch[0]
             del chPitch[0]  # remove the /bass entry
@@ -1740,19 +1773,19 @@ class MusicEngine:
         roleList.sort()
         roles: tuple[int, ...] = tuple(roleList)
 
-        root: str = ''
-        fifth: str = ''
+        root: PitchName | None = None
+        fifth: PitchName | None = None
 
         # availablePitches is only consulted as a last resort
-        availablePitches: list[str] = []
+        availablePitches: list[PitchName] = []
         for p in chPitch.values():
             # 888 use fancier enharmonic check
-            if p == lead.pitch.name:
+            if p == leadPitchName:
                 continue
             availablePitches.append(p)
 
         # 888 use fancier enharmonic check
-        if preferredBass and lead.pitch.name != preferredBass:
+        if preferredBass and leadPitchName != preferredBass:
             # bass always gets the preferredBass, unless the lead is already on it.
             bass = MusicEngine.makeNote(preferredBass, copyFrom=lead, below=lead)
             MusicEngine.moveIntoRange(bass, partRange)
@@ -1764,10 +1797,10 @@ class MusicEngine:
             # Triad: you can double the root if there's no "extra" /bass note
             root = chPitch[1]
             fifth = chPitch[roles[2]]  # we treat 5 or 6 as the fifth
-            other: str = chPitch[roles[1]]
+            other: PitchName = chPitch[roles[1]]
 
             # 888 use fancier enharmonic check
-            if lead.pitch.name == root:
+            if leadPitchName == root:
                 # Lead is on root, take doubled root an octave below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
@@ -1778,7 +1811,7 @@ class MusicEngine:
                         bass = MusicEngine.copyNote(lead)
 
             # 888 use fancier enharmonic check
-            elif lead.pitch.name == other:
+            elif leadPitchName == other:
                 # Lead is on 2, 3, or 4, take root a 9th, 10th or 11th below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
                 if partRange.isTooLow(bass.pitch):
@@ -1789,7 +1822,7 @@ class MusicEngine:
                         bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
 
             # 888 use fancier enharmonic check
-            elif lead.pitch.name == fifth:
+            elif leadPitchName == fifth:
                 # Lead is on fifth, take root below
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
@@ -1804,7 +1837,7 @@ class MusicEngine:
                         voice=measure[PartName.Lead],
                         offset=offset,
                     )
-            elif lead.pitch.name == preferredBass:
+            elif leadPitchName == preferredBass:
                 # lead is on /bass note, take the root
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 MusicEngine.moveIntoRange(bass, partRange)
@@ -1881,7 +1914,7 @@ class MusicEngine:
                     fifth = chPitch[5]
 
             # 888 use fancier enharmonic check
-            if root and fifth and lead.pitch.name == root:
+            if root and fifth and leadPitchName == root:
                 # put bass on fifth below lead, or raise lead to fifth and take lead's root)
                 bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
@@ -1896,14 +1929,14 @@ class MusicEngine:
                     )
 
             # 888 use fancier enharmonic check
-            elif root and fifth and lead.pitch.name == fifth:
+            elif root and fifth and leadPitchName == fifth:
                 # bass on root
                 bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
                 if partRange.isTooHigh(bass.pitch):
                     bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
 
             # 888 use fancier enharmonic check
-            elif (root and lead.pitch.name != root) or (fifth and lead.pitch.name != fifth):
+            elif (root and leadPitchName != root) or (fifth and leadPitchName != fifth):
                 while True:
                     # we will only iterate once, breaking out if we find a good note
                     rootBelowLead: m21.note.Note | None = None
@@ -1926,6 +1959,8 @@ class MusicEngine:
                         break
 
                     if rootBelowLead is not None and partRange.isTooHigh(rootBelowLead.pitch):
+                        if t.TYPE_CHECKING:
+                            assert root is not None
                         rootBelowLead = MusicEngine.makeNote(
                             root, copyFrom=lead, below=lead, extraOctaves=1
                         )
@@ -1950,10 +1985,23 @@ class MusicEngine:
                                 bass = fifthAboveLead
                                 break
 
-                    # OK, give up completely, and use the root, positioned in bass range,
-                    # no matter how far from lead.  The lead note must be _way_ out of range.
-                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
-                    MusicEngine.moveIntoRange(bass, partRange)
+                    # OK, give up on being smart, and use the root or fifth (or
+                    # availablePitches[0] if no root or fifth), positioned in bass
+                    # range, no matter how far from lead.  The lead note must be
+                    # _way_ out of range.
+                    if root:
+                        bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                        MusicEngine.moveIntoRange(bass, partRange)
+                    elif fifth:
+                        bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
+                        MusicEngine.moveIntoRange(bass, partRange)
+                    else:
+                        if len(availablePitches) < 2:
+                            raise MusicEngineException(f'too few available pitches: {chPitch}')
+                        bass = MusicEngine.makeNote(availablePitches[0], copyFrom=lead, below=lead)
+                        MusicEngine.moveIntoRange(bass, partRange)
+
+                    # all done, break out of "loop once"
                     break
 
             else:
@@ -2004,6 +2052,8 @@ class MusicEngine:
         bass: m21.note.Note = thisFourNotes[PartName.Bass]
         tenor: m21.note.Note | None = None
 
+        leadPitchName: PitchName = PitchName(lead.pitch.name)
+
         if not isinstance(bass, m21.note.Note):
             space: m21.note.Rest = m21.note.Rest()
             space.quarterLength = lead.quarterLength
@@ -2011,7 +2061,7 @@ class MusicEngine:
             measure[PartName.Tenor].insert(offset, space)
             return
 
-        availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
+        availablePitchNames: list[PitchName] = thisFourNotes.getAvailablePitchNames(pillarChord)
         if not availablePitchNames:
             raise MusicEngineException('no available pitches for tenor')
 
@@ -2021,9 +2071,9 @@ class MusicEngine:
         # First attempt: Just go for what's available, starting with the available
         # notes above the lead (preferring closer-to-the-lead notes), then the
         # available notes below the lead (preferring closer-to-the-lead notes).
-        orderedPitchNames: list[str] = MusicEngine.orderPitchNamesStartingAbove(
+        orderedPitchNames: list[PitchName] = MusicEngine.orderPitchNamesStartingAbove(
             availablePitchNames,
-            lead.pitch.name
+            leadPitchName
         )
 
         for p in orderedPitchNames:
@@ -2110,7 +2160,7 @@ class MusicEngine:
             measure[PartName.Bari].insert(offset, space)
             return
 
-        availablePitchNames: list[str] = thisFourNotes.getAvailablePitchNames(pillarChord)
+        availablePitchNames: list[PitchName] = thisFourNotes.getAvailablePitchNames(pillarChord)
 
         # bari gets whatever is left over (we can improve voice leading by trading notes,
         # obviously, but for now this is it).
@@ -2167,11 +2217,13 @@ class MusicEngine:
         bariVoice.insert(offset, bari)
 
     @staticmethod
-    def orderPitchNamesStartingAbove(pitches: list[str], baseName: str) -> list[str]:
-        # 888 doesn't need fancier enharmonic check, since it uses semitones
-        def semitonesAboveBaseName(pitchName: str) -> int:
-            pitch = m21.pitch.Pitch(pitchName)
-            basePitch = m21.pitch.Pitch(baseName)
+    def orderPitchNamesStartingAbove(
+        pitches: list[PitchName],
+        baseName: PitchName
+    ) -> list[PitchName]:
+        def semitonesAboveBaseName(pitchName: PitchName) -> int:
+            pitch = pitchName.pitch
+            basePitch = baseName.pitch
             intv: m21.interval.Interval = m21.interval.Interval(basePitch, pitch)
             semitones: float = intv.chromatic.semitones
             if semitones == 0:
@@ -2333,7 +2385,7 @@ class MusicEngine:
 
     @staticmethod
     def makeNote(
-        pitchName: str,
+        pitchName: PitchName,
         copyFrom: m21.note.Note,
         below: m21.note.Note | None = None,
         above: m21.note.Note | None = None,
@@ -2351,14 +2403,14 @@ class MusicEngine:
 
         output: m21.note.Note = MusicEngine.copyNote(copyFrom)
         if below is not None:
-            output.pitch = m21.pitch.Pitch(name=pitchName, octave=below.pitch.octave)
+            output.pitch = m21.pitch.Pitch(name=pitchName.name, octave=below.pitch.octave)
             if output.pitch >= below.pitch:
                 output.pitch.octave -= 1  # type: ignore
             if extraOctaves:
                 output.pitch.octave -= extraOctaves  # type: ignore
 
         elif above is not None:
-            output.pitch = m21.pitch.Pitch(name=pitchName, octave=above.pitch.octave)
+            output.pitch = m21.pitch.Pitch(name=pitchName.name, octave=above.pitch.octave)
             if output.pitch <= above.pitch:
                 output.pitch.octave += 1  # type: ignore
             if extraOctaves:
@@ -2372,7 +2424,7 @@ class MusicEngine:
 
     @staticmethod
     def makeAndInsertNote(
-        pitchName: str,
+        pitchName: PitchName,
         copyFrom: m21.note.Note,
         replacedNote: m21.note.Note | m21.note.Rest | None = None,
         below: m21.note.Note | None = None,
