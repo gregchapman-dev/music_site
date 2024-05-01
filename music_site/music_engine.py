@@ -1365,11 +1365,22 @@ class MusicEngine:
                     continue
 
                 # 888 use fancier enharmonic check
-                if leadNote.pitch.name not in MusicEngine.getChordVocalParts(
-                        chord, leadNote.pitch.name).values():
+                chordPitchNames = MusicEngine.getChordVocalParts(
+                    chord, leadNote.pitch.name
+                ).values()
+
+                if len(chordPitchNames) < 3:
+                    # not enough notes to figure out a harmonization
+                    space: m21.note.Rest = m21.note.Rest()
+                    space.quarterLength = leadNote.quarterLength
+                    space.style.hideObjectOnPrint = True
+                    currMeasure[partName].insert(offset, space)
+                    continue
+
+                if leadNote.pitch.name not in chordPitchNames:
                     # lead is not on a pillar chord note, fill in bass/tenor/bari with
                     # spaces (invisible rests).
-                    space: m21.note.Rest = m21.note.Rest()
+                    space = m21.note.Rest()
                     space.quarterLength = leadNote.quarterLength
                     space.style.hideObjectOnPrint = True
                     currMeasure[partName].insert(offset, space)
@@ -1509,6 +1520,8 @@ class MusicEngine:
             'error trying to fit /bass into {chord.sym.figure}/{bassPitchName}'
         )
 
+    # Degrees of the chord in our favorite order of unimportance (i.e. remove 5 first;
+    # no-one will miss it)
     _DEGREES_TO_REMOVE: tuple[int, ...] = (5, 1, 7, 9, 11, 13, 3, 6, 2, 4)
 
     @staticmethod
@@ -1642,24 +1655,10 @@ class MusicEngine:
 
         output = copy(allOfThem)
         # If the /bass note is an extra note (not just an inversion), we will drop
-        # a random note to make room for it.
+        # a random note (in our favorite order of unimportance) to make room for it.
         MusicEngine._addBassPitchToVocalParts(
             output, chord, leadPitchName, MusicEngine._DEGREES_TO_REMOVE
         )
-        if len(output) in (0, 1, 2):
-            f = chord.sym.figure
-            if chord.sym.chordKind not in m21.harmony.CHORD_TYPES:
-                f += chord.sym.chordKindStr + ' (' + chord.sym.chordKind + ')'
-            raise MusicEngineException(
-                f'getChordVocalParts could not come up with enough notes: {f} -> {output}'
-            )
-        if len(output) not in (3, 4):
-            f = chord.sym.figure
-            if chord.sym.chordKind not in m21.harmony.CHORD_TYPES:
-                f += chord.sym.chordKindStr + ' (' + chord.sym.chordKind + ')'
-            raise MusicEngineException(
-                f'getChordVocalParts came up with too many notes: {f} -> {output}'
-            )
         return output
 
     @staticmethod
