@@ -729,8 +729,15 @@ class MusicEngine:
                             lastChord.getOffsetInHierarchy(lastChordMeas)
                         )
                         ql: OffsetQL = lastChordMeas.quarterLength - lastChordOffsetInMeas
-                        lastChord.quarterLength = ql
-                        # no deepcopy or insertion because lastChord is already positioned
+                        if ql != 0:
+                            # no deepcopy or insertion; lastChord is already in place
+                            lastChord.quarterLength = ql
+                        else:
+                            # lastChord is at the very end of lastChordMeas (and since
+                            # we're going to propagate it into the next measure, is
+                            # unnecessary here).  Remove it.
+                            lastChordMeas.remove(lastChord, recurse=True)
+
                         fullMeasuresNow = True
                         continue
 
