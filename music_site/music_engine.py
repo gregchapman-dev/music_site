@@ -926,7 +926,7 @@ class MusicEngine:
                 if hasattr(rest, 'shopit_isPlaceHolder'):
                     bbMeas.remove(rest)
 
-        # Put regularized beams (and badly spelled lead notes) back in
+        # Put regularized beams back in
         for part in shopped.parts:
             m21.stream.makeNotation.makeBeams(part, inPlace=True, setStemDirections=False)
 
@@ -964,6 +964,10 @@ class MusicEngine:
         bbStaff.id = 'Bass/Baritone'
         shopped.insert(0, bbStaff)
 
+        mCurrEnding: m21.spanner.RepeatBracket | None = None
+        tlCurrEnding: m21.spanner.RepeatBracket | None = None
+        bbCurrEnding: m21.spanner.RepeatBracket | None = None
+
         for mIdx, (mMeas, cMeas) in enumerate(
             zip(melody[m21.stream.Measure], chords[m21.stream.Measure])
         ):
@@ -978,6 +982,36 @@ class MusicEngine:
             bbMeas = m21.stream.Measure(number=mMeas.measureNumberWithSuffix())
             bbMeas.id = 'Bari/Bass'  # we look for this later when inserting Voices
             bbStaff.append(bbMeas)
+
+            # repeat brackets (need to be duplicated across parts)
+            rbList: list[m21.spanner.RepeatBracket] = (
+                mMeas.getSpannerSites(m21.spanner.RepeatBracket)
+            )
+            if rbList:
+                if len(rbList) != 1:
+                    raise MusicEngineException(
+                        f'too many repeat endings in measure {mMeas.measureNumberWithSuffix}'
+                    )
+                if rbList[0] is mCurrEnding:
+                    if t.TYPE_CHECKING:
+                        assert tlCurrEnding is not None
+                        assert bbCurrEnding is not None
+                    tlCurrEnding.addSpannedElements(tlMeas)
+                    bbCurrEnding.addSpannedElements(bbMeas)
+                else:
+                    mCurrEnding = rbList[0]
+
+                    tlCurrEnding = m21.spanner.RepeatBracket(number=mCurrEnding.number)
+                    tlCurrEnding.addSpannedElements(tlMeas)
+                    tlStaff.append(tlCurrEnding)
+
+                    bbCurrEnding = m21.spanner.RepeatBracket(number=mCurrEnding.number)
+                    bbCurrEnding.addSpannedElements(bbMeas)
+                    bbStaff.append(bbCurrEnding)
+            else:
+                mCurrEnding = None
+                tlCurrEnding = None
+                bbCurrEnding = None
 
             if mIdx == 0:
                 # clef (just put in the clefs we like; hopefully the transposition
@@ -2498,7 +2532,7 @@ class MusicEngine:
         # we're careful to never partly fill in only one or two harmony parts.
         harmonyGaps: int = 0
         topStaff: m21.stream.Part = parts[0]
-        for measure in topStaff:
+        for measure in topStaff[m21.stream.Measure]:
             voices = list(measure[m21.stream.Voice])
             tenorVoice = voices[0]
             leadVoice = voices[1]
