@@ -813,90 +813,6 @@ class MusicEngine:
                 thisChordMeas.insert(0, lastChord2)
 
     @staticmethod
-    def fixupBadlySpelledChordSymbols(melody: m21.stream.Part, chords: m21.stream.Part):
-        # note that melody and chords may or may not be the same part.
-        for nc in melody[m21.note.NotRest]:
-            if isinstance(nc, m21.harmony.ChordSymbol):
-                # skip chord symbols
-                continue
-            if not isinstance(nc, (m21.note.Note, m21.chord.Chord)):
-                # skip anything that is not a Note or a Chord
-                continue
-
-            offset: OffsetQL = nc.getOffsetInHierarchy(melody)
-            n: m21.note.Note
-            if isinstance(nc, m21.chord.Chord):
-                n = nc.notes[-1]
-            else:
-                n = nc
-
-            cs = MusicEngine.findChordSymbolAtOffset(chords, offset)
-            if cs is None:
-                continue
-
-            chordPitchNames: list[str] = [p.name for p in cs.pitches]
-            if n.pitch.name in chordPitchNames:
-                # Looks good as is. Mark the chord as "don't respell this anymore",
-                # so it stays good.
-                cs.we_like_this_spelling = True  # type: ignore
-                continue
-
-            # respell the melody note or (preferably) the chordsymbol to get the note
-            # to be in the chord, if possible.
-            for p in cs.pitches:
-                enharmNames: list[str] = [enharm.name for enharm in p.getAllCommonEnharmonics()]
-                if n.pitch.name in enharmNames:
-                    if hasattr(cs, 'we_like_this_spelling'):
-                        # The chord already matches a melody note, so we need to
-                        # leave the chord alone, and instead respell this melody
-                        # note to match the existing chord pitch.
-                        if isinstance(nc, m21.chord.Chord):
-                            origPitch = deepcopy(nc.notes[-1].pitch)
-                            newPitch = deepcopy(nc.notes[-1].pitch)
-                            newPitch.name = p.name
-                            if newPitch.ps > origPitch.ps:
-                                # must be due to crossing from B* to C*
-                                newPitch.octave -= 1  # type: ignore
-                            elif newPitch.ps < origPitch.ps:
-                                # same, but in the other direction
-                                newPitch.octave += 1  # type: ignore
-                            assert newPitch.ps == origPitch.ps
-                            nc.notes[-1].pitch = newPitch
-
-                        else:
-                            if t.TYPE_CHECKING:
-                                assert isinstance(nc, m21.note.Note)
-                            origPitch = deepcopy(nc.pitch)
-                            newPitch = deepcopy(nc.pitch)
-                            newPitch.name = p.name
-                            if newPitch.ps > origPitch.ps:
-                                # must be due to crossing from B* to C*
-                                newPitch.octave -= 1  # type: ignore
-                            elif newPitch.ps < origPitch.ps:
-                                # same, but in the other direction
-                                newPitch.octave += 1  # type: ignore
-                            assert newPitch.ps == origPitch.ps
-                            nc.pitch = newPitch
-                    else:
-                        # we can respell the chord, and we prefer to do that.
-                        origPitch = deepcopy(n.pitch)
-                        newPitch = deepcopy(n.pitch)
-                        newPitch.name = p.name
-                        if newPitch.ps > origPitch.ps:
-                            # must be due to crossing from B* to C*
-                            newPitch.octave -= 1  # type: ignore
-                        elif newPitch.ps < origPitch.ps:
-                            # same, but in the other direction
-                            newPitch.octave += 1  # type: ignore
-                        assert newPitch.ps == origPitch.ps
-
-                        intv = m21.interval.Interval(newPitch, origPitch)
-                        cs.transpose(intv, inPlace=True)
-                        # mark the chord as "don't respell this anymore"
-                        cs.we_like_this_spelling = True  # type: ignore
-                    break
-
-    @staticmethod
     def removeAllBeams(leadSheet: m21.stream.Score):
         # in place
         for nc in leadSheet[m21.note.NotRest]:
@@ -940,13 +856,6 @@ class MusicEngine:
         # with an added "bugfix" that splits chordsyms across barlines, so the new
         # chordsym duration doesn't push the barline out.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
-
-        # if a melody note is in the chord enharmonically, respell the
-        # melody note to be obviously in the chord. e.g. a C melody note
-        # in a Em7#5 chord.  The #5 in an Em7#5 is a B#, which is enharmonically
-        # equivalent to C, so fix the melody note's spelling to be B#.  This
-        # helps simplify the harmonization code, and everyone likes good spelling.
-        # MusicEngine.fixupBadlySpelledChordSymbols(melody, chords)
 
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
