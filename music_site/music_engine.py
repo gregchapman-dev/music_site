@@ -1487,10 +1487,10 @@ class MusicEngine:
                     options: list[m21.harmony.ChordSymbol] = (
                         MusicEngine.getNonPillarChordOptions(leadPitchName, chord.sym)
                     )
-                    print(f'original chord: {chord.sym.figure}')
-                    print(f'leadPitchName: {leadPitchName.name}')
-                    for option in options:
-                        print(f'    option: {option.figure}')
+#                     print(f'original chord: {chord.sym.figure}')
+#                     print(f'leadPitchName: {leadPitchName.name}')
+#                     for option in options:
+#                         print(f'    option: {option.figure}')
 
                     space = m21.note.Rest()
                     space.quarterLength = leadNote.quarterLength
