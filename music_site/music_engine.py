@@ -706,7 +706,8 @@ class MusicEngine:
         leadPitchName: PitchName,
         origChord: m21.harmony.ChordSymbol,
         kind: str,
-        rootAlter: int | None = None
+        rootAlter: int | None = None,
+        keepCSMs: bool = False
     ) -> m21.harmony.ChordSymbol | None:
         origRoot: m21.pitch.Pitch = origChord.root()
         newRoot: m21.pitch.Pitch = origRoot.transpose(
@@ -714,10 +715,65 @@ class MusicEngine:
             inPlace=False
         )
         newChord: m21.harmony.ChordSymbol = m21.harmony.ChordSymbol(root=newRoot, kind=kind)
+        if keepCSMs:
+            for csm in origChord.getChordStepModifications():
+                newChord.addChordStepModification(csm)
+
         newPitchNames: list[PitchName] = [PitchName(p.name) for p in newChord.pitches]
         if leadPitchName in newPitchNames:
             return newChord
         return None
+
+    @staticmethod
+    def simplifyChordSymbol(cs: m21.harmony.ChordSymbol):
+        csms: list[m21.harmony.ChordStepModification] = cs.getChordStepModifications()
+        if not csms:
+            return
+
+        csWasModified: bool = False
+        if len(csms) == 1 and cs.chordKind in ('major', 'minor', 'augmented', 'diminished'):
+            csm: m21.harmony.ChordStepModification = csms[0]
+            if csm.degree == 7:
+                if cs.chordKind == 'major':
+                    if csm.interval.semitones == 0:
+                        cs.chordKind = 'major-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+                    elif csm.interval.semitones == -1:
+                        cs.chordKind = 'dominant-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+                elif cs.chordKind == 'minor':
+                    if csm.interval.semitones == 0:
+                        cs.chordKind = 'minor-major-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+                    elif csm.interval.semitones == -1:
+                        cs.chordKind = 'minor-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+                elif cs.chordKind == 'augmented':
+                    if csm.interval.semitones == 0:
+                        cs.chordKind = 'augmented-major-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+                    elif csm.interval.semitones == -1:
+                        cs.chordKind = 'augmented-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+                elif cs.chordKind == 'diminished':
+                    if csm.interval.semitones == -1:
+                        cs.chordKind = 'half-diminished-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+                    elif csm.interval.semitones == -2:
+                        cs.chordKind = 'diminished-seventh'
+                        cs.chordKindStr = ''
+                        csWasModified = True
+
+            if csWasModified:
+                cs.chordStepModifications = []
+                cs.figure = None  # next get will update it
 
     @staticmethod
     def getNonPillarChordOptions(
@@ -727,6 +783,7 @@ class MusicEngine:
         allOptions: list[m21.harmony.ChordSymbol] = []
 
         option1: m21.harmony.ChordSymbol | None = None
+        option1a: m21.harmony.ChordSymbol | None = None
         option2: m21.harmony.ChordSymbol | None = None
         option3: m21.harmony.ChordSymbol | None = None
         option4: m21.harmony.ChordSymbol | None = None
@@ -737,13 +794,23 @@ class MusicEngine:
 
         # 1. Extended chord: if lead is on 6, -7, or 9, just add that to the existing chord
 
-        # try adding 6th
+        # try adding 6th (or 13th)
         if origChord.chordKind == 'major':
             option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-sixth')
         elif origChord.chordKind == 'minor':
             option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-sixth')
-#         else:
-#             option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 6)
+        elif origChord.chordKind in (
+                'major-seventh', 'dominant-seventh', 'minor-seventh', 'minor-major-seventh',
+                'major-ninth', 'dominant-ninth', 'minor-ninth', 'minor-major-ninth'):
+            option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 13)
+        elif origChord.chordKind == 'major-11th':
+            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-13th')
+        elif origChord.chordKind == 'dominant-11th':
+            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-13th')
+        elif origChord.chordKind == 'minor-11th':
+            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-13th')
+        elif origChord.chordKind == 'minor-major-11th':
+            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-major-13th')
 
         if option1 is None:
             # add dominant 7th
@@ -776,11 +843,66 @@ class MusicEngine:
                 option1 = MusicEngine.tryChord(leadPitchName, origChord, 'half-diminished-ninth')
             elif origChord.chordKind == 'diminished-seventh':
                 option1 = MusicEngine.tryChord(leadPitchName, origChord, 'diminished-ninth')
-#             else:
-#                 option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 9)
+            else:
+                option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 9)
 
         if option1 is not None:
             allOptions.append(option1)
+
+        # Greg's new option1a: unsuspend fourth (to major or minor third) if orig is sus4 or 7sus4
+        # or suspend fourth if orig has major or minor third, or let the lead take aug4 in a maj6
+        # chord (which is actually a half-diminished-seventh a tritone above)
+        if origChord.chordKind == 'suspended-fourth':
+            option1a = MusicEngine.tryChord(
+                leadPitchName, origChord, 'major', keepCSMs=True
+            )
+            if option1a is None:
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'minor', keepCSMs=True
+                )
+            if option1a is not None:
+                # e.g. if it was suspended-fourth with add b7, now it is
+                # minor or major with add b7, which can be simplified to
+                # 'minor-seventh' or 'dominant-seventh'
+                MusicEngine.simplifyChordSymbol(option1a)
+        elif origChord.chordKind == 'suspended-fourth-seventh':
+            option1a = MusicEngine.tryChord(
+                leadPitchName, origChord, 'dominant-seventh', keepCSMs=True
+            )
+            if option1a is None:
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'minor-seventh', keepCSMs=True
+                )
+        elif origChord.chordKind in ('major', 'minor'):
+            option1a = MusicEngine.tryChord(
+                leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
+            )
+        elif origChord.chordKind in (
+                'dominant-seventh', 'major-seventh', 'minor-major-seventh', 'minor-seventh'):
+            option1a = MusicEngine.tryChord(
+                leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
+            )
+            if option1a is not None:
+                # gotta put the 7th back in
+                if origChord.chordKind in ('dominant-seventh', 'minor-seventh'):
+                    option1a.addChordStepModification(
+                        m21.harmony.ChordStepModification('add', 7, -1)
+                    )
+                else:
+                    option1a.addChordStepModification(
+                        m21.harmony.ChordStepModification('add', 7)
+                    )
+        elif origChord.chordKind == 'major-sixth':
+            # a major sixth with an augmented fourth instead of a fifth is
+            # a half-diminished-seventh rooted on that augmented fourth (i.e
+            # rooted a tritone up)
+            option1a = MusicEngine.tryChord(
+                leadPitchName, origChord, 'half-diminished-seventh', 6
+            )
+
+        if option1a is not None:
+            allOptions.append(option1a)
+
 
         # 2. 7th chord with root 5th above original
         option2 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 7)
@@ -991,18 +1113,47 @@ class MusicEngine:
 
                     chosenIdx: int = 0
                     chosenOption = options[chosenIdx]
-                    chosenOption.shopit_options_list = options  # type: ignore
-                    chosenOption.shopit_current_option_index = chosenIdx  # type: ignore
+                    leadNote.shopit_options_list = options  # type: ignore
+                    leadNote.shopit_current_option_index = chosenIdx  # type: ignore
 
-#                     MusicEngine.replaceChordSymbolPortion(
-#                         cMeas,
-#                         existingChordSym,
-#                         chosenOption,
-#                         offset,
-#                         leadNote.quarterLength
-#                     )
+                    MusicEngine.replaceChordSymbolPortion(
+                        cMeas,
+                        existingChordSym,
+                        chosenOption,
+                        offset,
+                        leadNote.quarterLength
+                    )
 
+    @staticmethod
+    def replaceChordSymbolPortion(
+        cMeas: m21.stream.Measure,
+        origcs: m21.harmony.ChordSymbol,
+        newcs: m21.harmony.ChordSymbol,
+        newcsOffset: OffsetQL,
+        newcsQL: OffsetQL
+    ):
+        origcsOffset: OffsetQL = origcs.getOffsetInHierarchy(cMeas)
+        firstOrigcsQL: OffsetQL = newcsOffset - origcsOffset
+        secondOrigcsQL: OffsetQL = origcs.quarterLength - (firstOrigcsQL + newcsQL)
+        secondOrigcsOffset: OffsetQL = newcsOffset + newcsQL
 
+        # first, trim the first bit of origCS
+        if firstOrigcsQL > 0:
+            # we need to leave a bit of the original cs in place, with ql trimmed
+            origcs.quarterLength = firstOrigcsQL
+        else:
+            # the portion of origcs before newcs is _gone_
+            cMeas.remove(origcs)
+
+        # next, insert newcs
+        newcs.quarterLength = newcsQL
+        cMeas.insert(newcsOffset, newcs)
+
+        # finally, insert the second portion of origcs (deepcopied)
+        if secondOrigcsQL > 0:
+            secondOrigcs: m21.harmony.ChordSymbol = deepcopy(origcs)
+            secondOrigcs.quarterLength = secondOrigcsQL
+            cMeas.insert(secondOrigcsOffset, secondOrigcs)
 
     @staticmethod
     def removeAllBeams(leadSheet: m21.stream.Score):
@@ -1052,7 +1203,7 @@ class MusicEngine:
         # Any time the melody note is not in the chord, find some options for
         # better chords, insert one (adjusting other chords' durations as
         # necessary), and note the others somehow, so the user can choose.
-        # MusicEngine.addChordOptionsForNonPillarNotes(melody, chords)
+        MusicEngine.addChordOptionsForNonPillarNotes(melody, chords)
 
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
@@ -1430,19 +1581,12 @@ class MusicEngine:
                 if leadPitchName not in chordPitchNames:
                     # lead is not on a pillar chord note, fill in bass/tenor/bari with
                     # spaces (invisible rests).
-                    options: list[m21.harmony.ChordSymbol] = (
-                        MusicEngine.getNonPillarChordOptions(leadPitchName, chord.sym)
-                    )
-#                     print(f'original chord: {chord.sym.figure}')
-#                     print(f'leadPitchName: {leadPitchName.name}')
-#                     for option in options:
-#                         print(f'    option: {option.figure}')
-
-                    space = m21.note.Rest()
-                    space.quarterLength = leadNote.quarterLength
-                    space.style.hideObjectOnPrint = True
-                    currMeasure[partName].insert(offset, space)
-                    continue
+                    raise MusicEngineException('lead note not in chord; should never happen')
+                    # space = m21.note.Rest()
+                    # space.quarterLength = leadNote.quarterLength
+                    # space.style.hideObjectOnPrint = True
+                    # currMeasure[partName].insert(offset, space)
+                    # continue
 
                 # Lead has a pillar chord note.  Fill in the <partName> note
                 # (potentially adjusting other non-lead notes to improve

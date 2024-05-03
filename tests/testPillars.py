@@ -71,6 +71,8 @@ def runTheTest(inputPath: Path) -> bool:
     print('displaying both shopped scores (via MusicXML/Musescore)')
     score1.show('musicxml.pdf', makeNotation=False)
     lowerShop.show('musicxml.pdf', makeNotation=False)
+    lsfp = lowerShop.write(fmt='musicxml', makeNotation=False)
+    print(f'lowerShop written to: {lsfp}')
     upperShop.show('musicxml.pdf', makeNotation=False)
 
     return True
