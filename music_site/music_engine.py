@@ -1172,6 +1172,57 @@ class MusicEngine:
             leadSheet.remove(d, recurse=True)
 
     @staticmethod
+    def makeAccidentals(shoppedVoices: list[FourVoices]):
+        currMeasure: FourVoices
+        for mIdx, currMeasure in enumerate(shoppedVoices):
+            # prevMeasure is the previous measure of all four voices (to look
+            # at for voice-leading decisions).
+            prevMeasure: FourVoices | None = None
+            if mIdx > 0:
+                prevMeasure = shoppedVoices[mIdx - 1]
+
+            for partName in (PartName.Tenor, PartName.Lead, PartName.Bari, PartName.Bass):
+                # set accidental visibility properly
+                harmonyVoice: m21.stream.Voice = currMeasure[partName]
+                harmonyNotes: list[m21.note.Note] = list(harmonyVoice[m21.note.Note])
+                tiedPitchNames: set[str] = set()
+                while True:  # fake loop to avoid deep if nesting
+                    if prevMeasure is None:
+                        break
+
+                    if not harmonyNotes or harmonyNotes[0].tie is None:
+                        break
+
+                    prevHarmonyNotes: list[m21.note.GeneralNote] = list(
+                        prevMeasure[partName][m21.note.GeneralNote]
+                    )
+                    if not prevHarmonyNotes:
+                        break
+                    if not isinstance(prevHarmonyNotes[-1], m21.note.Note):
+                        # can't be tied with Note (well, it could be a Chord, but we know not)
+                        break
+                    if prevHarmonyNotes[-1].tie is None:
+                        break
+
+                    prevNameWithOctave = prevHarmonyNotes[-1].pitch.nameWithOctave
+                    if prevNameWithOctave != harmonyNotes[0].pitch.nameWithOctave:
+                        break
+                    # Last pitch (in partName) in previous measure is tied with first pitch
+                    # (in partName) in this measure, which will make any accidental on the
+                    # first pitch hidden (tell makeAccidentals, so it will know to do that).
+                    tiedPitchNames.add(prevNameWithOctave)
+                    break
+
+                harmonyVoice.makeAccidentals(
+                    useKeySignature=True,
+                    searchKeySignatureByContext=True,  # current keysig might not be in this voice
+                    cautionaryPitchClass=True,   # don't hide accidental for different octave
+                    overrideStatus=True,         # because we may have left displayStatus set wrong
+                    tiePitchSet=tiedPitchNames,  # tied across barline needs no repeated accidental
+                    inPlace=True
+                )
+
+    @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
         arrType: ArrangementType
@@ -1266,6 +1317,12 @@ class MusicEngine:
         # parts as we go, to get better voice leading.
         for partName in (PartName.Bass, PartName.Tenor, PartName.Bari):
             MusicEngine.processPillarChordsHarmony(arrType, partName, shoppedVoices, chords)
+
+        # We can't do this on the fly in processPillarChordsHarmony, because sometimes
+        # parts trade notes, so the accidental might never be computed.  e.g. the bari
+        # takes a bass note (that has correctly computed accidental) and gives the bass
+        # a different note (that hasn't yet had its accidental computed).
+        MusicEngine.makeAccidentals(shoppedVoices)
 
         # Time to remove the placeholder rests we added earlier to all the measures in bbPart
         # (in MusicEngine.processPillarChordsLead).
@@ -1499,12 +1556,7 @@ class MusicEngine:
         for mIdx, (currMeasure, chordMeas) in enumerate(
             zip(shoppedVoices, chords[m21.stream.Measure])
         ):
-            # fillVoice is the measure-long single voice part we will be filling
-            # in with harmony notes for each pillar note in the lead voice (the
-            # rest of the non-pillar notes in the lead voice will just generate
-            # a space in theVoice).
-
-            # prevMeasure is the previous measure of all four voices (too look
+            # prevMeasure is the previous measure of all four voices (to look
             # at for voice-leading decisions).
             prevMeasure: FourVoices | None = None
             if mIdx > 0:
@@ -1635,46 +1687,6 @@ class MusicEngine:
                     raise MusicEngineException(
                         'Should not reach here: partName not in Bass, Tenor, Bari'
                     )
-
-            # set accidental visibility properly
-            harmonyVoice: m21.stream.Voice = currMeasure[partName]
-            harmonyNotes: list[m21.note.Note] = list(harmonyVoice[m21.note.Note])
-            tiedPitchNames: set[str] = set()
-            while True:  # fake loop to avoid deep if nesting
-                if prevMeasure is None:
-                    break
-
-                if not harmonyNotes or harmonyNotes[0].tie is None:
-                    break
-
-                prevHarmonyNotes: list[m21.note.GeneralNote] = list(
-                    prevMeasure[partName][m21.note.GeneralNote]
-                )
-                if not prevHarmonyNotes:
-                    break
-                if not isinstance(prevHarmonyNotes[-1], m21.note.Note):
-                    # can't be tied with Note (well, it could be a Chord, but we know not)
-                    break
-                if prevHarmonyNotes[-1].tie is None:
-                    break
-
-                prevNameWithOctave = prevHarmonyNotes[-1].pitch.nameWithOctave
-                if prevNameWithOctave != harmonyNotes[0].pitch.nameWithOctave:
-                    break
-                # Last pitch (in partName) in previous measure is tied with first pitch
-                # (in partName) in this measure, which will make any accidental on the
-                # first pitch hidden (tell makeAccidentals, so it will know to do that).
-                tiedPitchNames.add(prevNameWithOctave)
-                break
-
-            harmonyVoice.makeAccidentals(
-                useKeySignature=True,
-                searchKeySignatureByContext=True,  # current keysig might not be in this voice
-                cautionaryPitchClass=True,   # don't hide accidental for different octave
-                overrideStatus=True,         # because we may have left displayStatus set wrong
-                tiePitchSet=tiedPitchNames,  # tied across barline needs no repeated accidental
-                inPlace=True
-            )
 
     @staticmethod
     def _addBassPitchToVocalParts(
