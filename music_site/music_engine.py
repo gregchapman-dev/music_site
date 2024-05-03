@@ -9,8 +9,6 @@ from collections.abc import Sequence
 
 import music21 as m21
 from music21.common.numberTools import OffsetQL, opFrac
-from music21.figuredBass import realizerScale
-
 
 import converter21
 from converter21 import M21Utilities
@@ -99,7 +97,7 @@ class Chord(Sequence):
             # (by setting the bass to the root).
             self.preferredBassPitchName = PitchName(bass.name)
             self.sym.bass(self.sym.root())
-            MusicEngine._updatePitches(self.sym)
+            M21Utilities._updatePitches(self.sym)
 
         # tuple[role=1..13, pitch]
 
@@ -944,6 +942,69 @@ class MusicEngine:
                 thisChordMeas.insert(0, lastChord2)
 
     @staticmethod
+    def addChordOptionsForNonPillarNotes(melody: m21.stream.Part, chords: m21.stream.Part):
+        for mMeas, cMeas in zip(melody[m21.stream.Measure], chords[m21.stream.Measure]):
+            for el in mMeas[m21.note.NotRest]:
+                if not isinstance(el, (m21.note.Note, m21.chord.Chord)):
+                    # skipping Unpitched
+                    continue
+
+                if isinstance(el, m21.harmony.ChordSymbol):
+                    # skipping chord symbols (they are NotRests, but we aren't interested)
+                    continue
+
+                offset = el.getOffsetInHierarchy(mMeas)
+                if isinstance(el, m21.chord.Chord) and not isinstance(el, m21.harmony.ChordSymbol):
+                    # Don't put a chord in the melody; put the top note from the chord instead
+                    note = deepcopy(el.notes[-1])
+                    note.lyrics = deepcopy(el.lyrics)
+                    mMeas.remove(el, recurse=True)
+                    mMeas.insert(offset, note)
+                    el = note
+
+                leadNote: m21.note.Note = el
+                leadPitchName: PitchName = PitchName(leadNote.pitch.name)
+
+                existingChordSym: m21.harmony.ChordSymbol | None = (
+                    MusicEngine.findChordSymbolAtOffset(cMeas, offset)
+                )
+                if existingChordSym is None:
+                    # skip melody notes that have no chordsym at all
+                    continue
+
+                chordPitchNames = (
+                    MusicEngine.getChordVocalParts(
+                        Chord(existingChordSym),
+                        leadPitchName
+                    ).values()
+                )
+
+                if leadPitchName not in chordPitchNames:
+                    options: list[m21.harmony.ChordSymbol] = (
+                        MusicEngine.getNonPillarChordOptions(leadPitchName, existingChordSym)
+                    )
+
+                    print(f'original chord: {existingChordSym.figure}')
+                    print(f'leadPitchName: {leadPitchName.name}')
+                    for option in options:
+                        print(f'    option: {option.figure}')
+
+                    chosenIdx: int = 0
+                    chosenOption = options[chosenIdx]
+                    chosenOption.shopit_options_list = options  # type: ignore
+                    chosenOption.shopit_current_option_index = chosenIdx  # type: ignore
+
+#                     MusicEngine.replaceChordSymbolPortion(
+#                         cMeas,
+#                         existingChordSym,
+#                         chosenOption,
+#                         offset,
+#                         leadNote.quarterLength
+#                     )
+
+
+
+    @staticmethod
     def removeAllBeams(leadSheet: m21.stream.Score):
         # in place
         for nc in leadSheet[m21.note.NotRest]:
@@ -987,6 +1048,11 @@ class MusicEngine:
         # with an added "bugfix" that splits chordsyms across barlines, so the new
         # chordsym duration doesn't push the barline out.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
+
+        # Any time the melody note is not in the chord, find some options for
+        # better chords, insert one (adjusting other chords' durations as
+        # necessary), and note the others somehow, so the user can choose.
+        # MusicEngine.addChordOptionsForNonPillarNotes(melody, chords)
 
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
@@ -1223,16 +1289,6 @@ class MusicEngine:
             # Walk all the ChordSymbols in cMeas and put them in tlMeas (so
             # they will display above the top staff).
             for cs in cMeas.recurse().getElementsByClass(m21.harmony.ChordSymbol):
-                if cs.chordKind == 'augmented-ninth':
-                    # Finale and music21 don't know what 'augmented-ninth' is.
-                    # The example I found looks like it should be augmented-dominant-ninth
-                    # (i.e. with dominant 7th), not augmented-major-ninth (i.e. with
-                    # major 7th).  That is to say, 1-3-#5-b7-9, not 1-3-#5-7-9.
-                    # We update it in place before deepcopying, so it is updated
-                    # everywhere.
-                    cs.chordKind = 'augmented-dominant-ninth'
-                    # fix bug in cs._updatePitches (it doesn't know about 'augmented' ninths)
-                    MusicEngine._updatePitches(cs)
                 measureStuff.append(cs)
                 offset = cs.getOffsetInHierarchy(cMeas)
                 tlMeas.insert(offset, deepcopy(cs))
@@ -1280,116 +1336,6 @@ class MusicEngine:
                 rOffset += rest.quarterLength
 
         return shopped, shoppedVoices
-
-    @staticmethod
-    def _updatePitches(cs: m21.harmony.ChordSymbol):
-        def adjustOctaves(cs, pitches):
-            from music21 import pitch, chord
-            self = cs  # because this is an edited copy of ChordSymbol._adjustOctaves
-            if not isinstance(pitches, list):
-                pitches = list(pitches)
-
-            # do this for all ninth, thirteenth, and eleventh chords...
-            # this must be done to get octave spacing right
-            # possibly rewrite figured bass function with this integrated?
-            # ninths = ['dominant-ninth', 'major-ninth', 'minor-ninth']
-            # elevenths = ['dominant-11th', 'major-11th', 'minor-11th']
-            # thirteenths = ['dominant-13th', 'major-13th', 'minor-13th']
-
-            if self.chordKind.endswith('-ninth'):
-                pitches[1] = pitch.Pitch(pitches[1].name + str(pitches[1].octave + 1))
-            elif self.chordKind.endswith('-11th'):
-                pitches[1] = pitch.Pitch(pitches[1].name + str(pitches[1].octave + 1))
-                pitches[3] = pitch.Pitch(pitches[3].name + str(pitches[3].octave + 1))
-
-            elif self.chordKind.endswith('-13th'):
-                pitches[1] = pitch.Pitch(pitches[1].name + str(pitches[1].octave + 1))
-                pitches[3] = pitch.Pitch(pitches[3].name + str(pitches[3].octave + 1))
-                pitches[5] = pitch.Pitch(pitches[5].name + str(pitches[5].octave + 1))
-            else:
-                return pitches
-
-            c = chord.Chord(pitches)
-            c = c.sortDiatonicAscending()
-
-            return list(c.pitches)
-
-        self = cs  # because this is a copy of ChordSymbol._updatePitches
-        if 'root' not in self._overrides or 'bass' not in self._overrides or self.chordKind is None:
-            return
-
-        # create figured bass scale with root as scale
-        fbScale = realizerScale.FiguredBassScale(self._overrides['root'], 'major')
-
-        # render in the 3rd octave by default
-        self._overrides['root'].octave = 3
-        self._overrides['bass'].octave = 3
-
-        if self._notationString():
-            pitches = fbScale.getSamplePitches(self._overrides['root'], self._notationString())
-            # remove duplicated bass note due to figured bass method.
-            pitches.pop(0)
-        else:
-            pitches = []
-            pitches.append(self._overrides['root'])
-            if self._overrides['bass'] not in pitches:
-                pitches.append(self._overrides['bass'])
-
-        pitches = adjustOctaves(self, pitches)
-
-        if self._overrides['root'].name != self._overrides['bass'].name:
-
-            inversionNum: int | None = self.inversion()
-
-            if not self.inversionIsValid(inversionNum):
-                # there is a bass, yet no normal inversion was found: must be added note
-
-                inversionNum = None
-                # arbitrary octave, must be below root,
-                # which was arbitrarily chosen as 3 above
-                self._overrides['bass'].octave = 2
-                pitches.append(self._overrides['bass'])
-        else:
-            self.inversion(None, transposeOnSet=False)
-            inversionNum = None
-
-        pitches = self._adjustPitchesForChordStepModifications(pitches)
-
-        if inversionNum not in (0, None):
-            if t.TYPE_CHECKING:
-                assert inversionNum is not None
-            for p in pitches[0:inversionNum]:
-                p.octave = p.octave + 1
-                # Repeat if 9th/11th/13th chord in 4th inversion or greater
-                if inversionNum > 3:
-                    p.octave = p.octave + 1
-
-            # if after bumping up the octaves, there are still pitches below bass pitch
-            # bump up their octaves
-            # bassPitch = pitches[inversionNum]
-
-            # self.bass(bassPitch)
-            for p in pitches:
-                if p.diatonicNoteNum < self._overrides['bass'].diatonicNoteNum:
-                    p.octave = p.octave + 1
-
-        while self._hasPitchAboveC4(pitches):
-            for thisPitch in pitches:
-                thisPitch.octave -= 1
-
-        # but if this has created pitches below lowest note (the A 3 octaves below middle C)
-        # on a standard piano, we're going to have to bump all the octaves back up
-        while self._hasPitchBelowA1(pitches):
-            for thisPitch in pitches:
-                thisPitch.octave += 1
-
-        self.pitches = tuple(pitches)
-        self.sortDiatonicAscending(inPlace=True)
-
-        # set overrides to be pitches in the harmony
-        # self._overrides = {}  # JTW: was wiping legit overrides such as root=C from 'C6'
-        self.bass(self.bass(), allow_add=True)
-        self.root(self.root())
 
     @staticmethod
     def processPillarChordsHarmony(
