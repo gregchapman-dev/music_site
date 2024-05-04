@@ -1337,7 +1337,7 @@ class MusicEngine:
                 if nextHarmNote.offset != nextLeadNote.offset:
                     continue
 
-                if harmNote.pitch == nextHarmNote.pitch:
+                if harmNote.pitch.ps == nextHarmNote.pitch.ps:
                     harmNote.tie = deepcopy(leadNote.tie)
                     harmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
                     nextHarmNote.tie = deepcopy(nextLeadNote.tie)
