@@ -801,8 +801,12 @@ class MusicEngine:
             option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-sixth')
         elif origChord.chordKind in (
                 'major-seventh', 'dominant-seventh', 'minor-seventh', 'minor-major-seventh',
-                'major-ninth', 'dominant-ninth', 'minor-ninth', 'minor-major-ninth'):
+                'dominant-ninth', 'minor-ninth', 'minor-major-ninth'):
             option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 13)
+        elif origChord.chordKind == 'major-ninth':
+            option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 6)
+            if option1 is not None:
+                option1.chordKindStr = 'maj69'
         elif origChord.chordKind == 'major-11th':
             option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-13th')
         elif origChord.chordKind == 'dominant-11th':
@@ -1043,25 +1047,51 @@ class MusicEngine:
         # on exit from the loop, all but lastChord has been handled
         if t.TYPE_CHECKING:
             assert lastChord is not None
-        qlDiff = pf.highestTime - pf.elementOffset(lastChord)
-        if lastChordMeas is thisChordMeas:
-            lastChord.duration.quarterLength = qlDiff
-        else:
-            # split qlDiff into two parts:
-            # 1. the available room in lastChordMeas, and
-            # 2. the remainder (which will land in thisChordMeas)
-            lastChordMeas = piece.containerInHierarchy(lastChord, setActiveSite=False)
-            if t.TYPE_CHECKING:
-                assert lastChordMeas is not None
-            qlDiff1 = qlDiff - lastChord.getOffsetInHierarchy(lastChordMeas)
-            qlDiff2 = qlDiff - qlDiff1
-            lastChord.duration.quarterLength = qlDiff1
-            if qlDiff2 != 0:
-                lastChord2 = deepcopy(lastChord)
-                lastChord2.duration.quarterLength = qlDiff2
-                if t.TYPE_CHECKING:
-                    assert thisChordMeas is not None
-                thisChordMeas.insert(0, lastChord2)
+
+        thisChordMeas = list(piece[m21.stream.Measure])[-1]
+        lastChordMeas = piece.containerInHierarchy(lastChord, setActiveSite=False)
+        if t.TYPE_CHECKING:
+            assert lastChordMeas is not None
+
+        # loop over all the measures from lastChordMeas through thisChordMeas,
+        # doling out a deepcopy of lastChord of an appropriate duration to each
+        # measure.  lastChordMeas gets duration from lastChord offset to end
+        # of lastChordMeas, the bulk of the measures get a full measure duration,
+        # and thisChordMeas gets a full measure's worth of chord.
+        fullMeasuresNow = False
+        for meas in piece[m21.stream.Measure]:
+            if meas is lastChordMeas:
+                lastChordOffsetInMeas = (
+                    lastChord.getOffsetInHierarchy(lastChordMeas)
+                )
+                ql = lastChordMeas.quarterLength - lastChordOffsetInMeas
+                if ql != 0:
+                    # no deepcopy or insertion; lastChord is already in place
+                    lastChord.quarterLength = ql
+                else:
+                    # lastChord is at the very end of lastChordMeas (and since
+                    # we're going to propagate it into the next measure, is
+                    # unnecessary here).  Remove it.
+                    lastChordMeas.remove(lastChord, recurse=True)
+
+                fullMeasuresNow = True
+                continue
+
+            if meas is thisChordMeas:
+                fullMeasuresNow = False
+                # Change from loop above: there is no thisChord, so just
+                # fill out the entire last measure with lastChord.
+                chord = deepcopy(lastChord)
+                chord.quarterLength = thisChordMeas.quarterLength
+                meas.insert(0, chord)
+                # we're done, so break out of measure loop
+                break
+
+            if fullMeasuresNow:
+                # we only get here for measures between lastChordMeas and thisChordMeas
+                chord = deepcopy(lastChord)
+                chord.quarterLength = meas.quarterLength
+                meas.insert(0, chord)
 
     @staticmethod
     def addChordOptionsForNonPillarNotes(melody: m21.stream.Part, chords: m21.stream.Part):
@@ -1289,7 +1319,9 @@ class MusicEngine:
         # Any time the melody note is not in the chord, find some options for
         # better chords, insert one (adjusting other chords' durations as
         # necessary), and note the others somehow, so the user can choose.
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
         MusicEngine.addChordOptionsForNonPillarNotes(melody, chords)
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
 
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
