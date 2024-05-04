@@ -1306,11 +1306,12 @@ class MusicEngine:
                 continue
             if not isinstance(nextLeadNote, m21.note.Note):
                 continue
-            if leadNote.tie is None or nextLeadNote.tie is None:
+            if leadNote.tie is None:
                 continue
             if leadNote.tie.type not in ('start', 'continue'):
                 continue
-            if nextLeadNote.tie.type not in ('continue', 'stop'):
+            if leadNote.pitch.ps != nextLeadNote.pitch.ps:
+                # we check this because ties are often confused, and we want to make sure
                 continue
 
             # We have a tie between these two notes!
@@ -1336,12 +1337,16 @@ class MusicEngine:
                     continue
                 if nextHarmNote.offset != nextLeadNote.offset:
                     continue
+                if harmNote.pitch.ps != nextHarmNote.pitch.ps:
+                    continue
 
-                if harmNote.pitch.ps == nextHarmNote.pitch.ps:
-                    harmNote.tie = deepcopy(leadNote.tie)
-                    harmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
-                    nextHarmNote.tie = deepcopy(nextLeadNote.tie)
-                    nextHarmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
+                harmNote.tie = deepcopy(leadNote.tie)
+                harmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
+                if nextLeadNote.tie is None:
+                    # None implies a stop to the current tie
+                    continue
+                nextHarmNote.tie = deepcopy(nextLeadNote.tie)
+                nextHarmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
 
     @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
