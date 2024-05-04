@@ -1096,7 +1096,14 @@ class MusicEngine:
     @staticmethod
     def addChordOptionsForNonPillarNotes(melody: m21.stream.Part, chords: m21.stream.Part):
         for mMeas, cMeas in zip(melody[m21.stream.Measure], chords[m21.stream.Measure]):
-            for el in mMeas[m21.note.NotRest]:
+            mStream: m21.stream.Measure | m21.stream.Voice = mMeas
+            voices: list[m21.stream.Voice] = list(mMeas.voices)
+            if voices:
+                mStream = voices[0]
+
+            removeList: list[m21.base.Music21Object] = []
+            insertList: list[tuple[m21.base.Music21Object, OffsetQL]] = []
+            for el in mStream[m21.note.NotRest]:
                 if not isinstance(el, (m21.note.Note, m21.chord.Chord)):
                     # skipping Unpitched
                     continue
@@ -1110,9 +1117,12 @@ class MusicEngine:
                     # Don't put a chord in the melody; put the top note from the chord instead
                     note = deepcopy(el.notes[-1])
                     note.lyrics = deepcopy(el.lyrics)
-                    mMeas.remove(el, recurse=True)
-                    mMeas.insert(offset, note)
+                    removeList.append(el)
+                    insertList.append((note, offset))
                     el = note
+
+                if t.TYPE_CHECKING:
+                    assert isinstance(el, m21.note.Note)
 
                 leadNote: m21.note.Note = el
                 leadPitchName: PitchName = PitchName(leadNote.pitch.name)
@@ -1153,6 +1163,13 @@ class MusicEngine:
                         offset,
                         leadNote.quarterLength
                     )
+
+            for rem in removeList:
+                mStream.remove(rem, recurse=True)
+            removeList = []
+            for ins, offset in insertList:
+                mStream.insert(offset, ins)
+            insertList = []
 
     @staticmethod
     def replaceChordSymbolPortion(
