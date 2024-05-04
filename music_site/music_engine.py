@@ -1918,7 +1918,9 @@ class MusicEngine:
         if len(allOfThem) == 4:
             # triad add something?
             output = copy(allOfThem)
-            MusicEngine._addBassPitchToVocalParts(output, chord, leadPitchName, tuple())
+            MusicEngine._addBassPitchToVocalParts(
+                output, chord, leadPitchName, MusicEngine._DEGREES_TO_REMOVE
+            )
             return output
 
         if len(allOfThem) >= 5:
