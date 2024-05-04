@@ -948,12 +948,18 @@ class MusicEngine:
 
         return allOptions
 
-
     STEM_DIRECTION: dict[PartName, str] = {
         PartName.Tenor: 'up',
         PartName.Lead: 'down',
         PartName.Bari: 'up',
         PartName.Bass: 'down'
+    }
+
+    TIE_PLACEMENT: dict[PartName, str] = {
+        PartName.Tenor: 'above',
+        PartName.Lead: 'below',
+        PartName.Bari: 'above',
+        PartName.Bass: 'below'
     }
 
     @staticmethod
@@ -1269,40 +1275,73 @@ class MusicEngine:
                     inPlace=True
                 )
 
-#     @staticmethod
-#     def makeTies(shoppedVoices: list[FourVoices]):
-#         # turn list of FourVoices into one really long duration FourVoices
-#         allNotes: FourVoices = FourVoices(
-#             tenor=m21.stream.Voice(),
-#             lead=m21.stream.Voice(),
-#             bari=m21.stream.Voice(),
-#             bass=m21.stream.Voice()
-#         )
-#
-#         for fourVoices in enumerate(shoppedVoices):
-#             allNotes.tenor.append(list(fourVoices.tenor[m21.note.GeneralNote]))
-#             allNotes.lead.append(list(fourVoices.lead[m21.note.GeneralNote]))
-#             allNotes.bari.append(list(fourVoices.bari[m21.note.GeneralNote]))
-#             allNotes.bass.append(list(fourVoices.bass[m21.note.GeneralNote]))
-#
-#         leadNoteList: list[m21.note.GeneralNote] = list(allNotes.lead[m21.note.GeneralNote])
-#         for i, el in enumerate(leadNoteList):
-#             if el.tie is not None:
-#                 el.tie.placement = 'below'
-#             if i == len(leadNoteList) - 1:
-#                 # no next note, we're done
-#                 break
-#             nextEl: m21.note.GeneralNote = leadNoteList[i + 1]
-#             if isinstance(el, m21.note.Note) and isinstance(nextEl, m21.note.Note):
-#                 if el.tie is not None and nextEl.tie is not None:
-#                     if el.tie.type in ('start', 'continue'):
-#                         if nextEl.tie.type in ('continue', 'stop'):
-#                             # we have a tie between these two notes!
-#                             # If any of the harmony parts have two notes at these same
-#                             # two offsets, we should replicate this tie there (with
-#                             # appropriate placement)
-#
-#
+    @staticmethod
+    def makeTies(shoppedVoices: list[FourVoices]):
+        # turn list of FourVoices into four really long lists of notes
+        tenorNoteList: list[m21.note.GeneralNote] = []
+        leadNoteList: list[m21.note.GeneralNote] = []
+        bariNoteList: list[m21.note.GeneralNote] = []
+        bassNoteList: list[m21.note.GeneralNote] = []
+
+        for fourVoices in shoppedVoices:
+            tenorNoteList.extend(list(fourVoices.tenor[m21.note.GeneralNote]))
+            leadNoteList.extend(list(fourVoices.lead[m21.note.GeneralNote]))
+            bariNoteList.extend(list(fourVoices.bari[m21.note.GeneralNote]))
+            bassNoteList.extend(list(fourVoices.bass[m21.note.GeneralNote]))
+
+        for i, leadNote in enumerate(leadNoteList):
+            if leadNote.tie is not None:
+                # while we're here, make the lead ties have the correct placement
+                leadNote.tie.placement = MusicEngine.TIE_PLACEMENT[PartName.Lead]
+
+            if i == len(leadNoteList) - 1:
+                # no next note, we're done with all the lead notes
+                break
+
+            nextLeadNote: m21.note.GeneralNote = leadNoteList[i + 1]
+            if nextLeadNote.tie is not None:
+                nextLeadNote.tie.placement = MusicEngine.TIE_PLACEMENT[PartName.Lead]
+
+            if not isinstance(leadNote, m21.note.Note):
+                continue
+            if not isinstance(nextLeadNote, m21.note.Note):
+                continue
+            if leadNote.tie is None or nextLeadNote.tie is None:
+                continue
+            if leadNote.tie.type not in ('start', 'continue'):
+                continue
+            if nextLeadNote.tie.type not in ('continue', 'stop'):
+                continue
+
+            # We have a tie between these two notes!
+            # If any of the harmony parts have two notes at these same
+            # two offsets, we should replicate this tie there (with
+            # appropriate placement)
+            for partName in (PartName.Tenor, PartName.Bari, PartName.Bass):
+                if partName == PartName.Tenor:
+                    harmNote = tenorNoteList[i]
+                    nextHarmNote = tenorNoteList[i + 1]  # safe (see check above)
+                elif partName == PartName.Bari:
+                    harmNote = bariNoteList[i]
+                    nextHarmNote = bariNoteList[i + 1]
+                elif partName == PartName.Bass:
+                    harmNote = bassNoteList[i]
+                    nextHarmNote = bassNoteList[i + 1]
+
+                if not isinstance(harmNote, m21.note.Note):
+                    continue
+                if not isinstance(nextHarmNote, m21.note.Note):
+                    continue
+                if harmNote.offset != leadNote.offset:
+                    continue
+                if nextHarmNote.offset != nextLeadNote.offset:
+                    continue
+
+                if harmNote.pitch == nextHarmNote.pitch:
+                    harmNote.tie = deepcopy(leadNote.tie)
+                    harmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
+                    nextHarmNote.tie = deepcopy(nextLeadNote.tie)
+                    nextHarmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
 
     @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
@@ -1409,10 +1448,6 @@ class MusicEngine:
         # a different note (that hasn't yet had its accidental computed).
         MusicEngine.makeAccidentals(shoppedVoices)
 
-        # If there is a tie in the lead voice, and the notes in a harmony part are also
-        # the same as each other, put a tie there, too.
-        # MusicEngine.makeTies(shoppedVoices)
-
         # Time to remove the placeholder rests we added earlier to all the measures in bbPart
         # (in MusicEngine.processPillarChordsLead).
         bbStaff: m21.stream.Part
@@ -1430,6 +1465,10 @@ class MusicEngine:
         # Put regularized beams back in
         for part in shopped.parts:
             m21.stream.makeNotation.makeBeams(part, inPlace=True, setStemDirections=False)
+
+        # If there is a tie in the lead voice, and the notes in a harmony part are also
+        # the same as each other, put a tie there, too.
+        MusicEngine.makeTies(shoppedVoices)
 
         return shopped
 
