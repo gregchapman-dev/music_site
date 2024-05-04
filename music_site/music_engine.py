@@ -1090,7 +1090,7 @@ class MusicEngine:
                 existingChordSym: m21.harmony.ChordSymbol | None = (
                     MusicEngine.findChordSymbolAtOffset(cMeas, offset)
                 )
-                if existingChordSym is None:
+                if existingChordSym is None or isinstance(existingChordSym, m21.harmony.NoChord):
                     # skip melody notes that have no chordsym at all
                     continue
 
@@ -1106,10 +1106,10 @@ class MusicEngine:
                         MusicEngine.getNonPillarChordOptions(leadPitchName, existingChordSym)
                     )
 
-                    print(f'original chord: {existingChordSym.figure}')
-                    print(f'leadPitchName: {leadPitchName.name}')
-                    for option in options:
-                        print(f'    option: {option.figure}')
+                    # print(f'original chord: {existingChordSym.figure}')
+                    # print(f'leadPitchName: {leadPitchName.name}')
+                    # for option in options:
+                    #     print(f'    option: {option.figure}')
 
                     chosenIdx: int = 0
                     chosenOption = options[chosenIdx]
@@ -1222,6 +1222,41 @@ class MusicEngine:
                     inPlace=True
                 )
 
+#     @staticmethod
+#     def makeTies(shoppedVoices: list[FourVoices]):
+#         # turn list of FourVoices into one really long duration FourVoices
+#         allNotes: FourVoices = FourVoices(
+#             tenor=m21.stream.Voice(),
+#             lead=m21.stream.Voice(),
+#             bari=m21.stream.Voice(),
+#             bass=m21.stream.Voice()
+#         )
+#
+#         for fourVoices in enumerate(shoppedVoices):
+#             allNotes.tenor.append(list(fourVoices.tenor[m21.note.GeneralNote]))
+#             allNotes.lead.append(list(fourVoices.lead[m21.note.GeneralNote]))
+#             allNotes.bari.append(list(fourVoices.bari[m21.note.GeneralNote]))
+#             allNotes.bass.append(list(fourVoices.bass[m21.note.GeneralNote]))
+#
+#         leadNoteList: list[m21.note.GeneralNote] = list(allNotes.lead[m21.note.GeneralNote])
+#         for i, el in enumerate(leadNoteList):
+#             if el.tie is not None:
+#                 el.tie.placement = 'below'
+#             if i == len(leadNoteList) - 1:
+#                 # no next note, we're done
+#                 break
+#             nextEl: m21.note.GeneralNote = leadNoteList[i + 1]
+#             if isinstance(el, m21.note.Note) and isinstance(nextEl, m21.note.Note):
+#                 if el.tie is not None and nextEl.tie is not None:
+#                     if el.tie.type in ('start', 'continue'):
+#                         if nextEl.tie.type in ('continue', 'stop'):
+#                             # we have a tie between these two notes!
+#                             # If any of the harmony parts have two notes at these same
+#                             # two offsets, we should replicate this tie there (with
+#                             # appropriate placement)
+#
+#
+
     @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
@@ -1263,6 +1298,7 @@ class MusicEngine:
 
         # Most directions, dynamics, metronome marks, etc, will no longer apply.
         MusicEngine.removeAllDirections(leadSheet)
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
 
         # Now pick a key that will work for lead voice range, and transpose.
         melodyInfo: VocalRangeInfo = VocalRangeInfo(melody)
@@ -1323,6 +1359,10 @@ class MusicEngine:
         # takes a bass note (that has correctly computed accidental) and gives the bass
         # a different note (that hasn't yet had its accidental computed).
         MusicEngine.makeAccidentals(shoppedVoices)
+
+        # If there is a tie in the lead voice, and the notes in a harmony part are also
+        # the same as each other, put a tie there, too.
+        # MusicEngine.makeTies(shoppedVoices)
 
         # Time to remove the placeholder rests we added earlier to all the measures in bbPart
         # (in MusicEngine.processPillarChordsLead).
@@ -1655,6 +1695,8 @@ class MusicEngine:
                 prevFourNotes: FourNotes = (
                     MusicEngine.getFourNotesBeforeOffset(currMeasure, prevMeasure, offset)
                 )
+                if leadNote is not thisFourNotes[PartName.Lead]:
+                    raise MusicEngineException('we are confused about the lead note')
 
                 if partName == PartName.Bass:
                     MusicEngine.harmonizePillarChordBass(
@@ -2408,7 +2450,13 @@ class MusicEngine:
             if n.duration.isGrace:
                 continue
             if n.offset == offset:
-                tenor = n
+                # Sometimes we end up with multiple notes/rests at a single offset.
+                # In that case, take the first note (or first rest, if no notes)
+                if tenor is None or (
+                        isinstance(tenor, m21.note.Rest) and isinstance(n, m21.note.Note)):
+                    tenor = n
+                continue
+            if n.offset > offset:
                 break
 
         leadNotes: list[m21.note.Note | m21.note.Rest] = list(
@@ -2419,7 +2467,13 @@ class MusicEngine:
             if n.duration.isGrace:
                 continue
             if n.offset == offset:
-                lead = n
+                # Sometimes we end up with multiple notes/rests at a single offset.
+                # In that case, take the first note (or first rest, if no notes)
+                if lead is None or (
+                        isinstance(lead, m21.note.Rest) and isinstance(n, m21.note.Note)):
+                    lead = n
+                continue
+            if n.offset > offset:
                 break
 
         bariNotes: list[m21.note.Note | m21.note.Rest] = list(
@@ -2430,7 +2484,13 @@ class MusicEngine:
             if n.duration.isGrace:
                 continue
             if n.offset == offset:
-                bari = n
+                # Sometimes we end up with multiple notes/rests at a single offset.
+                # In that case, take the first note (or first rest, if no notes)
+                if bari is None or (
+                        isinstance(bari, m21.note.Rest) and isinstance(n, m21.note.Note)):
+                    bari = n
+                continue
+            if n.offset > offset:
                 break
 
         bassNotes: list[m21.note.Note | m21.note.Rest] = list(
@@ -2441,7 +2501,13 @@ class MusicEngine:
             if n.duration.isGrace:
                 continue
             if n.offset == offset:
-                bass = n
+                # Sometimes we end up with multiple notes/rests at a single offset.
+                # In that case, take the first note (or first rest, if no notes)
+                if bass is None or (
+                        isinstance(bass, m21.note.Rest) and isinstance(n, m21.note.Note)):
+                    bass = n
+                continue
+            if n.offset > offset:
                 break
 
         return FourNotes(tenor=tenor, lead=lead, bari=bari, bass=bass)
