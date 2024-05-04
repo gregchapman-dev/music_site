@@ -2642,7 +2642,7 @@ class MusicEngine:
     ) -> m21.harmony.ChordSymbol | None:
         for cs in stream[m21.harmony.ChordSymbol]:
             startChord: OffsetQL = cs.getOffsetInHierarchy(stream)
-            endChord: OffsetQL = startChord + cs.duration.quarterLength
+            endChord: OffsetQL = opFrac(startChord + cs.duration.quarterLength)
             if startChord <= offset < endChord:
                 return cs  # no deepcopy, this is the ChordSymbol that is in the stream
 
