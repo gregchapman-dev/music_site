@@ -1712,8 +1712,14 @@ class MusicEngine:
         # leadSheet.show('musicxml.pdf', makeNotation=False)
         # testing only
         hr: HarmonyRange
+        numNotes: int = len(melody[m21.note.Note])
+        numChords: int = len(chords[m21.harmony.ChordSymbol])
+        numHRs: int = 0
         for hr in HarmonyIterator(chords, melody):
+            numHRs += 1
             print(f'{hr}')
+        if numHRs < numNotes or numHRs > numNotes + numChords:
+            raise MusicEngineException(f'numNotes={numNotes}, numHRs={numHRs}')
 
         # Any time the melody note is not in the chord, find some options for
         # better chords, insert one (adjusting other chords' durations as
