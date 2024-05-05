@@ -440,6 +440,9 @@ class HarmonyRange:
         if endOffset == MAX_OFFSETQL:
             raise MusicEngineException('oops')
 
+        if gNote is None:
+            raise MusicEngineException('no note/rest?!?')
+
         self.startOffset: OffsetQL = startOffset
         self.endOffset: OffsetQL = endOffset
         self.chord: m21.harmony.ChordSymbol | None = chord
@@ -659,10 +662,6 @@ class HarmonyIterator:
         if newChord is None and newNote is None:
             # end of iteration, we reached the end of the score
             return None
-
-        if newNoteStart == MAX_OFFSETQL:
-            # I believe this should never happen except at end of iteration
-            raise MusicEngineException('found a gap between notes/rests')
 
         if prevEnd == prevChordEnd:
             if prevEnd == prevNoteEnd:
