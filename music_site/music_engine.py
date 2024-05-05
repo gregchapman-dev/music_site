@@ -27,6 +27,9 @@ class MusicEngineException(Exception):
     pass
 
 
+MAX_OFFSETQL: OffsetQL = opFrac(9223372036854775807)
+
+
 class PitchName:
     # used instead of pitch.name (str), so we can compare using enharmonic
     # equality with no octave (pitchClass)
@@ -423,6 +426,281 @@ class VocalRangeInfo:
         #         semitonesTooLow = round(highEndSemitonesTooLow)
 
         return semitonesTooLow
+
+class HarmonyRange:
+    def __init__(
+        self,
+        startOffset: OffsetQL,
+        endOffset: OffsetQL,
+        chord: m21.harmony.ChordSymbol | None,  # None is same as NoChord
+        gNote: m21.note.GeneralNote | None  # None is same as invisible Rest
+    ):
+        self.startOffset: OffsetQL = startOffset
+        self.endOffset: OffsetQL = endOffset
+        self.chord: m21.harmony.ChordSymbol | None = chord
+        self.gNote: m21.note.GeneralNote | None = gNote
+
+    def __repr__(self) -> str:
+        return (f'[{self.startOffset} .. {self.endOffset}]: '
+            + f'chord={self.chord}, gNote={self.gNote}')
+
+class HarmonyIterator:
+    def __init__(self, chords: m21.stream.Part, melody: m21.stream.Part):
+        self.chords: m21.stream.Part = chords
+        self.melody: m21.stream.Part = melody
+        self.currRange: HarmonyRange | None = None
+        self.cIter = self.chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
+        self.mIter = self.melody.recurse().getElementsByClass(m21.note.GeneralNote)
+        self.lookAheadChord: m21.harmony.ChordSymbol | None = None
+        self.lookAheadNote: m21.note.GeneralNote | None = None
+
+    def __iter__(self):
+        self.currRange = None
+        self.cIter = self.chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
+        self.mIter = self.melody.recurse().getElementsByClass(m21.note.GeneralNote)
+        self.lookAheadNote = self.getNextNote(throughLookAhead=False)
+        self.lookAheadChord = self.getNextChord(throughLookAhead=False)
+        return self
+
+    def __next__(self) -> HarmonyRange:
+        # bump self.currRange to the next range that has a new melody note/chordsym combination,
+        # where the note or the chordsym might be None, but if both never will be (that's
+        # the end of the score, and we stop iterating there instead)
+        nextRange: HarmonyRange | None = self.getNextRange()
+        if nextRange is None:
+            raise StopIteration
+
+        self.currRange = nextRange
+        return self.currRange
+
+    def getNextNote(self, throughLookAhead: bool = True) -> m21.note.GeneralNote | None:
+        output: m21.note.GeneralNote | None = None
+        if throughLookAhead:
+            # normal call (from the outside); return what's in the lookahead, and
+            # repopulate it.
+            if self.lookAheadNote is None:
+                # first call, we must populate the first lookahead first
+                self.lookAheadNote = self.getNextNote(throughLookAhead=False)
+
+            output = self.lookAheadNote
+
+            # first call or not, we must repopulate the lookahead with the _next_ note
+            self.lookAheadNote = self.getNextNote(throughLookAhead=False)
+            return output
+
+        # not through lookahead, just compute and return it.
+        try:
+            output = next(self.mIter)
+        except StopIteration:
+            output = None
+
+        while output is not None and (
+                output.duration.isGrace or isinstance(output, m21.harmony.ChordSymbol)):
+            # chords and melody may be the exact same part, so when we're looking
+            # for melody notes, we gotta skip chordsyms.  We also skip grace notes
+            # as uninteresting for harmonization.
+            try:
+                output = next(self.mIter)
+            except StopIteration:
+                output = None
+
+        return output
+
+    def getNextChord(self, throughLookAhead: bool = True) -> m21.harmony.ChordSymbol | None:
+        output: m21.harmony.ChordSymbol | None = None
+        if throughLookAhead:
+            # normal call (from the outside); return what's in the lookahead, and
+            # repopulate it.
+            if self.lookAheadChord is None:
+                # first call, we must populate the first lookahead first
+                self.lookAheadChord = self.getNextChord(throughLookAhead=False)
+
+            output = self.lookAheadChord
+
+            # first call or not, we must repopulate the lookahead with the _next_ chord
+            self.lookAheadChord = self.getNextChord(throughLookAhead=False)
+            return output
+
+        # not through lookahead, just compute and return it.
+        try:
+            output = next(self.cIter)
+        except StopIteration:
+            output = None
+        return output
+
+    def getNextRange(self) -> HarmonyRange | None:
+        if self.currRange is None:
+            # starting at beginning of score, first peek a bit at the first note and chord
+            # before actually getting them.
+            if self.lookAheadNote is None and self.lookAheadChord is None:
+                return None
+
+            firstNoteOffset: OffsetQL = MAX_OFFSETQL
+            firstNoteQL: OffsetQL = MAX_OFFSETQL
+            if self.lookAheadNote is not None:
+                firstNoteOffset = self.lookAheadNote.getOffsetInHierarchy(self.melody)
+                firstNoteQL = self.lookAheadNote.quarterLength
+
+            firstChordOffset: OffsetQL = MAX_OFFSETQL
+            firstChordQL: OffsetQL = MAX_OFFSETQL
+            if self.lookAheadChord is not None:
+                firstChordOffset = self.lookAheadChord.getOffsetInHierarchy(self.chords)
+                firstChordQL = self.lookAheadChord.quarterLength
+
+            firstChord: m21.harmony.ChordSymbol | None = None
+            firstNote: m21.note.GeneralNote | None = None
+
+            if firstNoteOffset == 0:
+                if firstChordOffset == 0:
+                    # we want to get both firstNote and firstChord (we peeked at them
+                    # and they are both useful at the start).
+                    firstChord = self.getNextChord()
+                    firstNote = self.getNextNote()
+
+                    # harmony is [0..lowestEndOffset]
+                    lowestEndOffset: OffsetQL = min(
+                        firstNoteQL, firstChordQL
+                    )
+                    self.currRange = HarmonyRange(
+                        opFrac(0), lowestEndOffset, firstChord, firstNote
+                    )
+                    return self.currRange
+
+                # we only want the first note (the chord we peeked at is for later)
+                firstNote = self.getNextNote()
+                # harmony is [0..min(firstChordStart,firstNoteEnd], with no chord
+                lowestOffset: OffsetQL = min(firstChordOffset, firstNoteQL)
+                self.currRange = HarmonyRange(
+                    opFrac(0), lowestOffset, None, firstNote
+                )
+                return self.currRange
+
+            if firstChordOffset == 0:
+                # firstNoteOffset is not 0, so we only need to get the firstChord
+                firstChord = self.getNextChord()
+                # harmony is [0..firstNoteOffset], with no note
+                # (this seems unlikely, since firstNote would normally be a rest
+                # in this case, but we handle it anyway)
+                self.currRange = HarmonyRange(
+                    opFrac(0), firstNoteOffset, firstChord, None
+                )
+                return self.currRange
+
+            # neither offset is 0 (possible for chord, unlikely for note)
+            # We leave them both in the lookAhead buffer, and carry on.
+            # harmony is [0..lowestOffset]
+            lowestOffset = min(
+                firstNoteOffset, firstChordOffset
+            )
+            self.currRange = HarmonyRange(
+                opFrac(0), lowestOffset, None, None
+            )
+            return self.currRange
+
+        # in middle of score; look at self.currRange to see where to start from
+        prevChord: m21.harmony.ChordSymbol | None = self.currRange.chord
+        prevChordEnd: OffsetQL = MAX_OFFSETQL
+        if prevChord is not None:
+            prevChordEnd = opFrac(
+                prevChord.getOffsetInHierarchy(self.chords) + prevChord.quarterLength
+            )
+
+        prevNote: m21.note.GeneralNote | None = self.currRange.gNote
+        prevNoteEnd: OffsetQL = MAX_OFFSETQL
+        if prevNote is not None:
+            prevNoteEnd = opFrac(
+                prevNote.getOffsetInHierarchy(self.melody) + prevNote.quarterLength
+            )
+
+        prevEnd: OffsetQL = self.currRange.endOffset
+
+        newChord: m21.harmony.ChordSymbol | None = None
+        newNote: m21.note.GeneralNote | None = None
+        if prevEnd == prevChordEnd:
+            if prevEnd == prevNoteEnd:
+                # we need to get new chord and new note
+                newChord = self.getNextChord()
+                newChordEnd: OffsetQL = MAX_OFFSETQL
+                if newChord is not None:
+                    newChordEnd = opFrac(
+                        newChord.getOffsetInHierarchy(self.chords) + newChord.quarterLength
+                    )
+
+                newNote = self.getNextNote()
+                if newNote is None and newChord is None:
+                    return None
+
+                newNoteEnd: OffsetQL = MAX_OFFSETQL
+                if newNote is not None:
+                    newNoteEnd = opFrac(
+                        newNote.getOffsetInHierarchy(self.melody) + newNote.quarterLength
+                    )
+
+                # harmony is [prevEnd..lowestNewEnd] with new chord and new note
+                lowestNewEnd: OffsetQL = min(newChordEnd, newNoteEnd)
+                self.currRange = HarmonyRange(prevEnd, lowestNewEnd, newChord, newNote)
+                return self.currRange
+
+            # prevEnd == prevChordEnd, but prevNote (if not None) is still ringing.
+            # We need to get a new chord, but keep using the prev note.  If prev note
+            # is None, we should peek at the next note to see if we should start it.
+            newChord = self.getNextChord()
+            newChordEnd = MAX_OFFSETQL
+            if newChord is not None:
+                newChordEnd = opFrac(
+                    newChord.getOffsetInHierarchy(self.chords) + newChord.quarterLength
+                )
+
+            if prevNote is None and self.lookAheadNote:
+                if self.lookAheadNote.getOffsetInHierarchy(self.melody) == prevEnd:
+                    # we need to put this new note in the range
+                    newNote = self.getNextNote()
+                    newNoteEnd = MAX_OFFSETQL
+                    if newNote is not None:
+                        newNoteEnd = prevEnd + newNote.quarterLength
+                    # harmony is [prevEnd..lowestOffset]
+                    lowestOffset = min(newChordEnd, newNoteEnd)
+                    self.currRange = HarmonyRange(prevEnd, lowestOffset, newChord, newNote)
+                    return self.currRange
+
+            # harmony is [prevEnd..lowestNewEnd] with new chord and prev note
+            lowestNewEnd = min(newChordEnd, prevNoteEnd)
+            self.currRange = HarmonyRange(prevEnd, lowestNewEnd, newChord, prevNote)
+            return self.currRange
+
+        # prevEnd != prevChordEnd
+        if prevEnd == prevNoteEnd:
+            # prevEnd is prevNoteEnd, but prevChord (if not None) is still ringing.
+            # We need to get a new note, but keep using the prev chord.  If prevChord
+            # is None, we need to peek at the new chord to see if we should start it.
+            newNote = self.getNextNote()
+            newNoteEnd = MAX_OFFSETQL
+            if newNote is not None:
+                newNoteEnd = opFrac(
+                    newNote.getOffsetInHierarchy(self.melody) + newNote.quarterLength
+                )
+
+            if prevChord is None and self.lookAheadChord:
+                if self.lookAheadChord.getOffsetInHierarchy(self.chords) == prevEnd:
+                    # we need to put this new chord in the range
+                    newChord = self.getNextChord()
+                    newChordEnd = MAX_OFFSETQL
+                    if newChord is not None:
+                        newChordEnd = prevEnd + newChord.quarterLength
+                    # harmony is [prevEnd..lowestOffset]
+                    lowestOffset = min(newChordEnd, newNoteEnd)
+                    self.currRange = HarmonyRange(prevEnd, lowestOffset, newChord, newNote)
+                    return self.currRange
+
+
+            # harmony is [prevEnd..lowestNewEnd] with prev chord and new note
+            lowestNewEnd = min(prevChordEnd, newNoteEnd)
+            self.currRange = HarmonyRange(prevEnd, lowestNewEnd, prevChord, newNote)
+            return self.currRange
+
+        raise MusicEngineException(
+            'HarmonyRange ended in middle of both chord and note (should not happen)'
+        )
 
 
 class MusicEngine:
@@ -1376,6 +1654,11 @@ class MusicEngine:
         # with an added "bugfix" that splits chordsyms across barlines, so the new
         # chordsym duration doesn't push the barline out.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
+
+        # testing only
+#         hr: HarmonyRange
+#         for hr in HarmonyIterator(chords, melody):
+#             print(f'{hr}')
 
         # Any time the melody note is not in the chord, find some options for
         # better chords, insert one (adjusting other chords' durations as
