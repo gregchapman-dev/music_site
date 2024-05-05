@@ -456,6 +456,7 @@ class HarmonyIterator:
     def __init__(self, chords: m21.stream.Part, melody: m21.stream.Part):
         self.chords: m21.stream.Part = chords
         self.melody: m21.stream.Part = melody
+        self.highestTime: OffsetQL = max(chords.highestTime, melody.highestTime)
         self.currRange: HarmonyRange | None = None
         self.cIter = self.chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
         self.mIter = self.melody.recurse().getElementsByClass(m21.note.GeneralNote)
@@ -541,6 +542,8 @@ class HarmonyIterator:
             # starting at beginning of score, first peek a bit at the first note and chord
             # before actually getting them.
             if self.lookAheadNote is None and self.lookAheadChord is None:
+                # There are no notes in self.melody, and no notes in self.chords
+                # Stop iterating.
                 return None
 
             firstNoteOffset: OffsetQL = MAX_OFFSETQL
@@ -616,6 +619,9 @@ class HarmonyIterator:
         # up to four reasons.  All those possibilities need to be handled by the code
         # below.
         prevEnd: OffsetQL = self.currRange.endOffset
+        if prevEnd >= self.highestTime:
+            # we are at the end of the score; stop iterating
+            return None
 
         prevChord: m21.harmony.ChordSymbol | None = self.currRange.chord
         prevChordEnd: OffsetQL = MAX_OFFSETQL
@@ -645,25 +651,31 @@ class HarmonyIterator:
         newNote: m21.note.GeneralNote | None = None
         newNoteEnd: OffsetQL = MAX_OFFSETQL
 
-        if newChordStart == prevEnd:
+        # There are several places below where we check prevEnd >= newNote/ChordStart.
+        # That's weird; we should never see a note that should have started already,
+        # but we just ran into it.  Well... if there is some weird stuff in the score (see
+        # Allan Clarke, Roger Cook and Roger Greenaway - Long Cool Woman (Transcribed).mxl,
+        # measure 35, with a <forward> at end of measure that shows up as an extra
+        # space (durQL=1/24) that somehow doesn't increase the duration of the measure),
+        # then this can happen.  So we handle it by pretending the note/chord starts NOW.
+        # The "gap" shows up as a separate note/chord, and will get harmonized.  In this
+        # particular score, it's just an invisible rest that propagates to the other parts.
+
+        if newChordStart <= prevEnd:
             newChord = self.getNextChord()
             if newChord is not None:
                 newChordEnd = opFrac(
                     newChord.getOffsetInHierarchy(self.chords) + newChord.quarterLength
                 )
 
-        if newNoteStart == prevEnd:
+        if newNoteStart <= prevEnd:
             newNote = self.getNextNote()
             if newNote is not None:
                 newNoteEnd = opFrac(
                     newNote.getOffsetInHierarchy(self.melody) + newNote.quarterLength
                 )
 
-        if newChord is None and newNote is None:
-            # end of iteration, we reached the end of the score
-            return None
-
-        if prevEnd == prevChordEnd:
+        if prevEnd >= prevChordEnd:
             if prevEnd == prevNoteEnd:
                 # Simplest case: both prevChord and prevNote ended here. There may
                 # or may not be newChord and/or newNote.
@@ -693,12 +705,11 @@ class HarmonyIterator:
 
         # prevEnd != prevChordEnd
         if prevEnd == prevNoteEnd:
-            if prevEnd == newChordStart:
+            if prevEnd >= newChordStart:
                 # prevNote ended here, prevChord did not, but a new chord starts here
                 # (that means there was no prevChord at all).  A new note may also start.
                 # We need to start a new note (if there is one), and the next chord.
                 # harmony is [prevEnd..lowestOffset] with newChord and newNote?
-                assert prevChord is None
                 lowestOffset = min(newChordEnd, newNoteEnd)
                 self.currRange = HarmonyRange(prevEnd, lowestOffset, newChord, newNote)
                 return self.currRange
@@ -713,8 +724,8 @@ class HarmonyIterator:
             return self.currRange
 
         # prevEnd != prevChordEnd and prevEnd != prevNoteEnd
-        if prevEnd == newChordStart:
-            if prevEnd == newNoteStart:
+        if prevEnd >= newChordStart:
+            if prevEnd >= newNoteStart:
                 # prev chord did not end, nor did prev note. But there is a new note and chord.
                 # There must have been no note or chord, and now there is both.
                 # harmony is [prevEnd..lowestNewEnd] with new chord and new note
@@ -733,7 +744,7 @@ class HarmonyIterator:
 
         # prevEnd != prevChordEnd, prevEnd != prevNoteEnd,
         # prevEnd != newChordStart
-        if prevEnd == newNoteStart:
+        if prevEnd >= newNoteStart:
             # prev chord did not end, nor did prev note.  But there is a new note (and no
             # new chord).  This is a new note in the middle of a chord (and prevNote is None).
             # harmony is [prevEnd..newNoteEnd] with prevChord (which may be None) and newNote.
@@ -742,7 +753,7 @@ class HarmonyIterator:
             return self.currRange
 
         raise MusicEngineException(
-            'HarmonyRange ended in middle of both chord and note (should not happen)'
+            'HarmonyIterator saw a case it could not handle (should not happen)'
         )
 
 
