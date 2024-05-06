@@ -3207,8 +3207,26 @@ class MusicEngine:
                 # 0 voices or 1 voice is fine (0 voices means the measure is the "voice")
                 if len(voices) > 1:
                     # unuseable part: multiple voices
-                    multipleVoices = True
-                    break
+                    # But... if the secondary voices contain only rests, just
+                    # remove them and be happy.
+                    voiceRemoveList: list[m21.stream.Voice] = []
+                    for i, voice in enumerate(voices):
+                        if i == 0:
+                            continue
+                        onlyRests: bool = True
+                        for gn in voice[m21.note.GeneralNote]:
+                            if not isinstance(gn, m21.note.Rest):
+                                onlyRests = False
+                                break
+                        if onlyRests:
+                            voiceRemoveList.append(voice)
+                    if len(voiceRemoveList) < len(voices) - 1:
+                        # at least one of them had non-rests in it
+                        multipleVoices = True
+                        break
+                    for remV in voiceRemoveList:
+                        meas.remove(remV)
+
                 checkForChordsHere: m21.stream.Voice | m21.stream.Measure = meas
                 if voices:
                     checkForChordsHere = voices[0]
