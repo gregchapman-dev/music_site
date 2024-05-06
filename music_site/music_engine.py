@@ -3341,20 +3341,20 @@ class MusicEngine:
                 'Unuseable leadsheet; no chord symbols.'
             )
 
-        # check for weird duration objects making measures too big
-        for meas in melodyPart[m21.stream.Measure]:
-            if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
-                raise MusicEngineException(
-                    'Unuseable leadsheet; some measures are longer than their time signature.'
-                )
-
-        if melodyPart is not chordPart:
-            # check the chordPart, too
-            for meas in chordPart[m21.stream.Measure]:
-                if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
-                    raise MusicEngineException(
-                        'Unuseable leadsheet; some measures are longer than their time signature.'
-                    )
+#         # check for weird duration objects making measures too big
+#         for meas in melodyPart[m21.stream.Measure]:
+#             if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
+#                 raise MusicEngineException(
+#                     'Unuseable leadsheet; some measures are longer than their time signature.'
+#                 )
+#
+#         if melodyPart is not chordPart:
+#             # check the chordPart, too
+#             for meas in chordPart[m21.stream.Measure]:
+#                 if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
+#                     raise MusicEngineException(
+#                         'Unuseable leadsheet; some measures are longer than their time signature.'
+#                     )
 
         return melodyPart, chordPart
 
