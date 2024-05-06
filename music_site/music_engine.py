@@ -1,4 +1,5 @@
 import typing as t
+import sys
 import pathlib
 import re
 import zipfile
@@ -690,6 +691,7 @@ class HarmonyIterator:
                 # We need to start newChord? and newNote.
                 # Note that newChordEnd is MAX_OFFSETQL if there is no newChord, so
                 # this simple code works fine.
+                # if prevNote is not None, there are overlapping notes here.
                 assert prevNote is None and newNote is not None
                 lowestOffset = min(newChordEnd, newNoteEnd)
                 self.currRange = HarmonyRange(prevEnd, lowestOffset, newChord, newNote)
@@ -1295,6 +1297,84 @@ class MusicEngine:
     }
 
     @staticmethod
+    def fixOverlappingRests(leadsheet: m21.stream.Score):
+        for part in leadsheet[m21.stream.Part]:
+            for meas in list(part[m21.stream.Measure]):
+                # Remove any rest-only secondary voices (not the first voice!)
+                voices: list[m21.stream.Voice] = list(meas[m21.stream.Voice])
+                if len(voices) > 1:
+                    voiceRemoveList: list[m21.stream.Voice] = []
+                    for i, voice in enumerate(voices):
+                        if i == 0:
+                            continue
+                        onlyRests: bool = True
+                        for gn in voice[m21.note.GeneralNote]:
+                            if not isinstance(gn, m21.note.Rest):
+                                onlyRests = False
+                                break
+                        if onlyRests:
+                            voiceRemoveList.append(voice)
+                    for remV in voiceRemoveList:
+                        meas.remove(remV)
+
+                # Remove (or fix) any overlapping rests in each voice (and in the
+                # top-level of the measure, too).
+
+                voices = list(meas[m21.stream.Voice])
+                if not voices:
+                    # the top-level measure
+                    MusicEngine.fixOverlappingRestsInVoice(meas)
+                else:
+                    # or the voices
+                    for voice in voices:
+                        MusicEngine.fixOverlappingRestsInVoice(voice)
+
+    @staticmethod
+    def fixOverlappingRestsInVoice(voice: m21.stream.Voice | m21.stream.Measure):
+        generalNotesButNotChordSymbols = list(
+            voice
+            .getElementsByClass(m21.note.GeneralNote)
+            .getElementsNotOfClass(m21.harmony.ChordSymbol)
+        )
+        skipNextNInOuterLoop: int = 0
+        for i, gn in enumerate(generalNotesButNotChordSymbols):
+            if skipNextNInOuterLoop:
+                skipNextNInOuterLoop -= 1
+                continue
+
+            gnStartOffset: OffsetQL = gn.getOffsetInHierarchy(voice)
+            gnEndOffset: OffsetQL = gnStartOffset + gn.quarterLength
+            # see if the next note (and if so, the next, and so on) starts
+            # in this note's offset range.
+            for j in range(i + 1, len(generalNotesButNotChordSymbols)):
+                nextGN: m21.note.GeneralNote = generalNotesButNotChordSymbols[j]
+                nextGNStartOffset: OffsetQL = nextGN.getOffsetInHierarchy(voice)
+                nextGNEndOffset: OffsetQL = nextGNStartOffset + nextGN.quarterLength
+                if nextGNStartOffset == gnEndOffset:
+                    # gn is all good now
+                    break
+                if nextGNStartOffset > gnEndOffset:
+                    # gn is all good now, but we have a gap
+                    print('we have a gap', file=sys.stderr)
+                    break
+
+                # nextGN starts before gn ends
+                if nextGNEndOffset <= gnEndOffset:
+                    # nextGN ends before or at end of gn, we can just remove it
+                    voice.remove(nextGN)
+                    skipNextNInOuterLoop += 1
+                    continue
+
+                # nextGN ends after end of gn, so we need to trim the overlap
+                # off the duration, and re-insert later by the overlap amount.
+                overlap: OffsetQL = nextGNEndOffset - gnEndOffset
+                newDurQL: OffsetQL = nextGN.quarterLength - overlap
+                newOffset: OffsetQL = nextGNStartOffset + overlap
+                voice.remove(nextGN)
+                nextGN.duration.quarterLength = newDurQL
+                voice.insert(newOffset, nextGN)
+
+    @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
         # this is a copy of m21.harmony.realizeChordSymbolDurations, that instead
         # of extending a chordsym duration beyond the end-of-measure, will extend
@@ -1692,6 +1772,17 @@ class MusicEngine:
         # For example, we might need to transpose it to a different key, or generate
         # ChordSymbols from the piano accompaniment.
         leadSheet: m21.stream.Score = deepcopy(inLeadSheet)
+
+        # Before testing if it can be used as a leadsheet, remove any "all rest" voices,
+        # and fix up any rests that overlap with other general notes (either remove
+        # them, or leave the non-overlapping bit in place).
+        # "Bryan Adams - (Everything I Do) I Do It For You.mxl" is an example with
+        # overlapping hidden rests in the top-level measure (Sibelius was trying to
+        # position a chord symbol in the middle of a note, and should have given the
+        # <forward> tag a voice number).
+        # Many MusicXML files have rests in secondary voices to do the same thing (and
+        # fixOverlappingRests will remove those voices).
+        MusicEngine.fixOverlappingRests(leadSheet)
 
         melody: m21.stream.Part
         chords: m21.stream.Part
@@ -3201,31 +3292,15 @@ class MusicEngine:
         melodyPart: m21.stream.Part | None = None
         for part in parts:
             multipleVoices: bool = False
-            chords: bool = False
+            badChords: bool = False
             for meas in list(part[m21.stream.Measure]):
                 voices: list[m21.stream.Voice] = list(meas[m21.stream.Voice])
                 # 0 voices or 1 voice is fine (0 voices means the measure is the "voice")
                 if len(voices) > 1:
                     # unuseable part: multiple voices
-                    # But... if the secondary voices contain only rests, just
-                    # remove them and be happy.
-                    voiceRemoveList: list[m21.stream.Voice] = []
-                    for i, voice in enumerate(voices):
-                        if i == 0:
-                            continue
-                        onlyRests: bool = True
-                        for gn in voice[m21.note.GeneralNote]:
-                            if not isinstance(gn, m21.note.Rest):
-                                onlyRests = False
-                                break
-                        if onlyRests:
-                            voiceRemoveList.append(voice)
-                    if len(voiceRemoveList) < len(voices) - 1:
-                        # at least one of them had non-rests in it
-                        multipleVoices = True
-                        break
-                    for remV in voiceRemoveList:
-                        meas.remove(remV)
+                    # Note: we have already removed rest-only voices.
+                    multipleVoices = True
+                    break
 
                 checkForChordsHere: m21.stream.Voice | m21.stream.Measure = meas
                 if voices:
@@ -3233,10 +3308,10 @@ class MusicEngine:
                 if (checkForChordsHere
                         .getElementsByClass(m21.chord.Chord)               # look for Chords that
                         .getElementsNotOfClass(m21.harmony.ChordSymbol)):  # aren't ChordSymbols
-                    chords = True
+                    badChords = True
                     break
 
-            if not multipleVoices and not chords:
+            if not multipleVoices and not badChords:
                 melodyPart = part
                 break
 
