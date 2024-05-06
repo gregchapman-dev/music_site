@@ -1343,13 +1343,13 @@ class MusicEngine:
                 continue
 
             gnStartOffset: OffsetQL = gn.getOffsetInHierarchy(voice)
-            gnEndOffset: OffsetQL = gnStartOffset + gn.quarterLength
+            gnEndOffset: OffsetQL = opFrac(gnStartOffset + gn.quarterLength)
             # see if the next note (and if so, the next, and so on) starts
             # in this note's offset range.
             for j in range(i + 1, len(generalNotesButNotChordSymbols)):
                 nextGN: m21.note.GeneralNote = generalNotesButNotChordSymbols[j]
                 nextGNStartOffset: OffsetQL = nextGN.getOffsetInHierarchy(voice)
-                nextGNEndOffset: OffsetQL = nextGNStartOffset + nextGN.quarterLength
+                nextGNEndOffset: OffsetQL = opFrac(nextGNStartOffset + nextGN.quarterLength)
                 if nextGNStartOffset == gnEndOffset:
                     # gn is all good now
                     break
@@ -1367,12 +1367,13 @@ class MusicEngine:
 
                 # nextGN ends after end of gn, so we need to trim the overlap
                 # off the duration, and re-insert later by the overlap amount.
-                overlap: OffsetQL = nextGNEndOffset - gnEndOffset
-                newDurQL: OffsetQL = nextGN.quarterLength - overlap
+                overlap: OffsetQL = opFrac(nextGNEndOffset - gnEndOffset)
+                newDurQL: OffsetQL = opFrac(nextGN.quarterLength - overlap)
                 newOffset: OffsetQL = nextGNStartOffset + overlap
                 voice.remove(nextGN)
-                nextGN.duration.quarterLength = newDurQL
-                voice.insert(newOffset, nextGN)
+                if newDurQL != 0:
+                    nextGN.duration.quarterLength = newDurQL
+                    voice.insert(newOffset, nextGN)
 
     @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
@@ -1773,6 +1774,12 @@ class MusicEngine:
         # ChordSymbols from the piano accompaniment.
         leadSheet: m21.stream.Score = deepcopy(inLeadSheet)
 
+        # Most directions, dynamics, metronome marks, etc, will no longer apply,
+        # and some scores have directions with offsets that extend the measure,
+        # causing mass confusion about gaps between notes.
+        MusicEngine.removeAllDirections(leadSheet)
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
+
         # Before testing if it can be used as a leadsheet, remove any "all rest" voices,
         # and fix up any rests that overlap with other general notes (either remove
         # them, or leave the non-overlapping bit in place).
@@ -1830,10 +1837,6 @@ class MusicEngine:
         # harmony parts, causing occasional export crashes).  We will call
         # m21.stream.makeBeams when necessary, to make valid beams again.
         MusicEngine.removeAllBeams(leadSheet)
-
-        # Most directions, dynamics, metronome marks, etc, will no longer apply.
-        MusicEngine.removeAllDirections(leadSheet)
-        # leadSheet.show('musicxml.pdf', makeNotation=False)
 
         # Now pick a key that will work for lead voice range, and transpose.
         melodyInfo: VocalRangeInfo = VocalRangeInfo(melody)
@@ -3342,9 +3345,7 @@ class MusicEngine:
         for meas in melodyPart[m21.stream.Measure]:
             if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
                 raise MusicEngineException(
-                    'Unuseable leadsheet; some measures are longer than timesig.  '
-                    'Probably due to text objects with offsets beyond end of expected '
-                    'time signature duration.'
+                    'Unuseable leadsheet; some measures are longer than their time signature.'
                 )
 
         if melodyPart is not chordPart:
@@ -3352,9 +3353,7 @@ class MusicEngine:
             for meas in chordPart[m21.stream.Measure]:
                 if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
                     raise MusicEngineException(
-                        'Unuseable leadsheet; some measures are longer than timesig.  '
-                        'Probably due to text objects with offsets beyond end of expected '
-                        'time signature duration.'
+                        'Unuseable leadsheet; some measures are longer than their time signature.'
                     )
 
         return melodyPart, chordPart
