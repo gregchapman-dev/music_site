@@ -1710,11 +1710,16 @@ class MusicEngine:
         # leadSheet.show('musicxml.pdf', makeNotation=False)
         # testing only
         hr: HarmonyRange
-        numNotes: int = len(
-            melody.recurse()
+        notes = list(melody.recurse()
             .getElementsByClass(m21.note.GeneralNote)
-            .getElementsNotOfClass(m21.harmony.ChordSymbol)
-        )
+            .getElementsNotOfClass(m21.harmony.ChordSymbol))
+
+        numNotes: int = len(notes)
+        # don't count grace notes
+        for note in notes:
+            if note.duration.isGrace:
+                numNotes -= 1
+
         numChords: int = len(chords[m21.harmony.ChordSymbol])
         numHRs: int = 0
         for hr in HarmonyIterator(chords, melody):
