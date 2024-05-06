@@ -1697,7 +1697,7 @@ class MusicEngine:
         chords: m21.stream.Part | None
         melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
         if melody is None or chords is None:
-            raise MusicEngineException('not a useable leadsheet (no melody, or no chords)')
+            raise MusicEngineException('not a useable leadsheet')
 
         # more fixups to the leadsheet score
         M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
@@ -1712,7 +1712,11 @@ class MusicEngine:
         # leadSheet.show('musicxml.pdf', makeNotation=False)
         # testing only
         hr: HarmonyRange
-        numNotes: int = len(melody[m21.note.Note])
+        numNotes: int = len(
+            melody.recurse()
+                .getElementsByClass(m21.note.GeneralNote)
+                .getElementsNotOfClass(m21.harmony.ChordSymbol)
+        )
         numChords: int = len(chords[m21.harmony.ChordSymbol])
         numHRs: int = 0
         for hr in HarmonyIterator(chords, melody):
@@ -3184,23 +3188,41 @@ class MusicEngine:
         # returns melodyPart, chordsPart (can be the same part).
         parts: list[m21.stream.Part] = list(score.parts)
         if not parts:
-            return None, None
+            raise MusicEngineException('Unuseable leadsheet; no parts.')
 
-        # we require the first Part to be the "lead sheet" (not a PartStaff, only one
-        # Voice throughout the Part), and the score must have ChordSymbols somewhere.
+        # we require one Part to be the melody: only one Voice throughout the Part, Notes and
+        # Rests only (no Chords), and the score must have ChordSymbols, either in the melody
+        # Part, or in another Part.
         # There can be other parts, but we will ignore them for now (in future, we could
         # go without chord symbols if there is a piano accompaniment, for example).
-        if isinstance(parts[0], m21.stream.PartStaff):
-            return None, None
+        melodyPart: m21.stream.Part | None = None
+        for part in parts:
+            multipleVoices: bool = False
+            chords: bool = False
+            for meas in list(part[m21.stream.Measure]):
+                voices: list[m21.stream.Voice] = list(meas[m21.stream.Voice])
+                # 0 voices or 1 voice is fine (0 voices means the measure is the "voice")
+                if len(voices) > 1:
+                    # unuseable part: multiple voices
+                    multipleVoices = True
+                    break
+                checkForChordsHere: m21.stream.Voice | m21.stream.Measure = meas
+                if voices:
+                    checkForChordsHere = voices[0]
+                if (checkForChordsHere
+                        .getElementsByClass(m21.chord.Chord)               # look for Chords that
+                        .getElementsNotOfClass(m21.harmony.ChordSymbol)):  # aren't ChordSymbols
+                    chords = True
+                    break
 
-        melodyPart: m21.stream.Part = parts[0]
-        for meas in list(melodyPart[m21.stream.Measure]):
-            voices: list[m21.stream.Voice] = list(meas[m21.stream.Voice])
-            # 0 voices or 1 voice is fine (0 voices means the measure is the "voice")
-            if len(voices) > 1:
-                # remove the extraneous voices (assume first voice is the melody)
-                for voice in voices[1:]:
-                    meas.remove(voice)
+            if not multipleVoices and not chords:
+                melodyPart = part
+                break
+
+        if melodyPart is None:
+            raise MusicEngineException(
+                'Unuseable leadsheet; multiple voices or chords in every part.'
+            )
 
         chordPart: m21.stream.Part | None = None
         for part in parts:
@@ -3208,6 +3230,7 @@ class MusicEngine:
             for _cs in part[m21.harmony.ChordSymbol]:
                 numChords += 1
                 if numChords > 1:
+                    # I saw several scores that had only one chord symbol.  Rejecting those.
                     chordPart = part
                     break
 
