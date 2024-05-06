@@ -1693,11 +1693,9 @@ class MusicEngine:
         # ChordSymbols from the piano accompaniment.
         leadSheet: m21.stream.Score = deepcopy(inLeadSheet)
 
-        melody: m21.stream.Part | None
-        chords: m21.stream.Part | None
+        melody: m21.stream.Part
+        chords: m21.stream.Part
         melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
-        if melody is None or chords is None:
-            raise MusicEngineException('not a useable leadsheet')
 
         # more fixups to the leadsheet score
         M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
@@ -1714,8 +1712,8 @@ class MusicEngine:
         hr: HarmonyRange
         numNotes: int = len(
             melody.recurse()
-                .getElementsByClass(m21.note.GeneralNote)
-                .getElementsNotOfClass(m21.harmony.ChordSymbol)
+            .getElementsByClass(m21.note.GeneralNote)
+            .getElementsNotOfClass(m21.harmony.ChordSymbol)
         )
         numChords: int = len(chords[m21.harmony.ChordSymbol])
         numHRs: int = 0
@@ -3184,7 +3182,7 @@ class MusicEngine:
     @staticmethod
     def useAsLeadSheet(
         score: m21.stream.Score
-    ) -> tuple[m21.stream.Part | None, m21.stream.Part | None]:
+    ) -> tuple[m21.stream.Part, m21.stream.Part]:
         # returns melodyPart, chordsPart (can be the same part).
         parts: list[m21.stream.Part] = list(score.parts)
         if not parts:
@@ -3238,7 +3236,28 @@ class MusicEngine:
                 break
 
         if chordPart is None:
-            return melodyPart, None
+            raise MusicEngineException(
+                'Unuseable leadsheet; no chord symbols.'
+            )
+
+        # check for weird duration objects making measures too big
+        for meas in melodyPart[m21.stream.Measure]:
+            if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
+                raise MusicEngineException(
+                    'Unuseable leadsheet; some measures are longer than timesig.  '
+                    'Probably due to text objects with offsets beyond end of expected '
+                    'time signature duration.'
+                )
+
+        if melodyPart is not chordPart:
+            # check the chordPart, too
+            for meas in chordPart[m21.stream.Measure]:
+                if meas.quarterLength > meas.getTimeSignatures()[0].barDuration.quarterLength:
+                    raise MusicEngineException(
+                        'Unuseable leadsheet; some measures are longer than timesig.  '
+                        'Probably due to text objects with offsets beyond end of expected '
+                        'time signature duration.'
+                    )
 
         return melodyPart, chordPart
 
