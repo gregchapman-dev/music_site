@@ -1051,7 +1051,10 @@ class MusicEngine:
         newChord: m21.harmony.ChordSymbol = m21.harmony.ChordSymbol(root=newRoot, kind=kind)
         if keepCSMs:
             for csm in origChord.getChordStepModifications():
-                newChord.addChordStepModification(csm)
+                try:
+                    newChord.addChordStepModification(csm)
+                except m21.harmony.ChordStepModificationException:
+                    pass  # probably tried to modify a degree that isn't in the new chord
 
         newPitchNames: list[PitchName] = [PitchName(p.name) for p in newChord.pitches]
         if leadPitchName in newPitchNames:
@@ -1398,10 +1401,12 @@ class MusicEngine:
                 # nextGN starts before gn ends
                 if nextGNEndOffset <= gnEndOffset:
                     # nextGN ends before or at end of gn, we can just remove it
+                    # (but only if it is a hidden rest, otherwise bail)
+                    if isinstance(nextGN, m21.note.Rest) and nextGN.style.hideObjectOnPrint:
+                        voice.remove(nextGN)
+                        skipNextNInOuterLoop += 1
+                        continue
                     raise MusicEngineException('Unuseable leadsheet: overlapping notes/rests')
-#                     voice.remove(nextGN)
-#                     skipNextNInOuterLoop += 1
-#                     continue
 
                 # nextGN ends after end of gn, so we need to trim the overlap
                 # off the duration, and re-insert later by the overlap amount.
