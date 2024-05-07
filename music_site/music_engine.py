@@ -968,7 +968,7 @@ class MusicEngine:
             tuple[m21.key.KeySignature, m21.interval.Interval]
         ] = {}
         for keySig in keySigs:
-            offsetInScore: OffsetQL = opFrac(keySig.getOffsetInHierarchy(score))
+            offsetInScore: OffsetQL = keySig.getOffsetInHierarchy(score)
             if offsetInScore not in keySigAndTransposeIntervalAtOffset:
                 interval: m21.interval.Interval = MusicEngine.getBestTranspositionForKeySig(
                     keySig, semitonesUp
@@ -1297,9 +1297,10 @@ class MusicEngine:
     }
 
     @staticmethod
-    def fixOverlappingRests(leadsheet: m21.stream.Score):
+    def fixOverlappingNotesAndGaps(leadsheet: m21.stream.Score):
         for part in leadsheet[m21.stream.Part]:
-            for meas in list(part[m21.stream.Measure]):
+            measList: list[m21.stream.Measure] = list(part[m21.stream.Measure])
+            for i, meas in enumerate(measList):
                 # Remove any rest-only secondary voices (not the first voice!)
                 voices: list[m21.stream.Voice] = list(meas[m21.stream.Voice])
                 if len(voices) > 1:
@@ -1320,18 +1321,40 @@ class MusicEngine:
                 # Remove (or fix) any overlapping rests in each voice (and in the
                 # top-level of the measure, too).
 
+                nextMeas: m21.stream.Measure | None = None
+                if i < len(measList) - 1:
+                    nextMeas = measList[i + 1]
+
+                measureDurQL: OffsetQL
+                if nextMeas is not None:
+                    measureDurQL = opFrac(
+                        nextMeas.getOffsetInHierarchy(leadsheet)
+                        - meas.getOffsetInHierarchy(leadsheet)
+                    )
+                else:
+                    # meas is the very last measure
+                    measureDurQL = opFrac(
+                        leadsheet.highestTime
+                        - meas.getOffsetInHierarchy(leadsheet)
+                    )
+
                 voices = list(meas[m21.stream.Voice])
                 if not voices:
                     # the top-level measure
-                    MusicEngine.fixOverlappingRestsInVoice(meas)
+                    MusicEngine.fixOverlappingNotesAndGapsInVoice(meas, highestTime=measureDurQL)
                 else:
                     # or the voices
                     for voice in voices:
-                        MusicEngine.fixOverlappingRestsInVoice(voice)
+                        MusicEngine.fixOverlappingNotesAndGapsInVoice(
+                            voice, highestTime=measureDurQL
+                        )
 
     @staticmethod
-    def fixOverlappingRestsInVoice(voice: m21.stream.Voice | m21.stream.Measure):
-        generalNotesButNotChordSymbols = list(
+    def fixOverlappingNotesAndGapsInVoice(
+        voice: m21.stream.Voice | m21.stream.Measure,
+        highestTime: OffsetQL
+    ):
+        generalNotesButNotChordSymbols: list[m21.note.GeneralNote] = list(
             voice
             .getElementsByClass(m21.note.GeneralNote)
             .getElementsNotOfClass(m21.harmony.ChordSymbol)
@@ -1345,35 +1368,51 @@ class MusicEngine:
             gnStartOffset: OffsetQL = gn.getOffsetInHierarchy(voice)
             gnEndOffset: OffsetQL = opFrac(gnStartOffset + gn.quarterLength)
             # see if the next note (and if so, the next, and so on) starts
-            # in this note's offset range.
-            for j in range(i + 1, len(generalNotesButNotChordSymbols)):
-                nextGN: m21.note.GeneralNote = generalNotesButNotChordSymbols[j]
-                nextGNStartOffset: OffsetQL = nextGN.getOffsetInHierarchy(voice)
-                nextGNEndOffset: OffsetQL = opFrac(nextGNStartOffset + nextGN.quarterLength)
+            # in this note's offset range.  Note that we loop one extra time, using the
+            # highestTime as the last nextGN
+            for j in range(i + 1, len(generalNotesButNotChordSymbols) + 1):
+                nextGN: m21.note.GeneralNote | None = None
+                nextGNStartOffset: OffsetQL = highestTime
+                nextGNEndOffset: OffsetQL = MAX_OFFSETQL
+                if j < len(generalNotesButNotChordSymbols):
+                    nextGN = generalNotesButNotChordSymbols[j]
+                    nextGNStartOffset = nextGN.getOffsetInHierarchy(voice)
+                    nextGNEndOffset = opFrac(nextGNStartOffset + nextGN.quarterLength)
+
                 if nextGNStartOffset == gnEndOffset:
                     # gn is all good now
                     break
+
                 if nextGNStartOffset > gnEndOffset:
-                    # gn is all good now, but we have a gap
-                    print('we have a gap', file=sys.stderr)
+                    # gn is all good now, but we have a gap to fill with hidden rest(s)
+                    gapQL: OffsetQL = opFrac(nextGNStartOffset - gnEndOffset)
+                    theSpace: m21.note.Rest = m21.note.Rest()
+                    theSpace.quarterLength = gapQL
+                    sOffset: OffsetQL = gnEndOffset
+                    for space in M21Utilities.splitComplexRestDuration(theSpace):
+                        space.style.hideObjectOnPrint = True
+                        voice.insert(sOffset, space)
+                        sOffset = opFrac(sOffset + space.quarterLength)
                     break
 
                 # nextGN starts before gn ends
                 if nextGNEndOffset <= gnEndOffset:
                     # nextGN ends before or at end of gn, we can just remove it
-                    voice.remove(nextGN)
-                    skipNextNInOuterLoop += 1
-                    continue
+                    raise MusicEngineException('Unuseable leadsheet: overlapping notes/rests')
+#                     voice.remove(nextGN)
+#                     skipNextNInOuterLoop += 1
+#                     continue
 
                 # nextGN ends after end of gn, so we need to trim the overlap
                 # off the duration, and re-insert later by the overlap amount.
-                overlap: OffsetQL = opFrac(nextGNEndOffset - gnEndOffset)
-                newDurQL: OffsetQL = opFrac(nextGN.quarterLength - overlap)
-                newOffset: OffsetQL = nextGNStartOffset + overlap
-                voice.remove(nextGN)
-                if newDurQL != 0:
-                    nextGN.duration.quarterLength = newDurQL
-                    voice.insert(newOffset, nextGN)
+                raise MusicEngineException('Unuseable leadsheet: overlapping notes/rests')
+#                 overlap: OffsetQL = opFrac(gnEndOffset - nextGNStartOffset)
+#                 newDurQL: OffsetQL = opFrac(nextGN.quarterLength - overlap)
+#                 newOffset: OffsetQL = opFrac(nextGNStartOffset + overlap)
+#                 voice.remove(nextGN)
+#                 if newDurQL != 0:
+#                     nextGN.duration.quarterLength = newDurQL
+#                     voice.insert(newOffset, nextGN)
 
     @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
@@ -1432,7 +1471,7 @@ class MusicEngine:
                         lastChordOffsetInMeas: OffsetQL = (
                             lastChord.getOffsetInHierarchy(lastChordMeas)
                         )
-                        ql: OffsetQL = lastChordMeas.quarterLength - lastChordOffsetInMeas
+                        ql: OffsetQL = opFrac(lastChordMeas.quarterLength - lastChordOffsetInMeas)
                         if ql != 0:
                             # no deepcopy or insertion; lastChord is already in place
                             lastChord.quarterLength = ql
@@ -1599,9 +1638,9 @@ class MusicEngine:
         newcsQL: OffsetQL
     ):
         origcsOffset: OffsetQL = origcs.getOffsetInHierarchy(cMeas)
-        firstOrigcsQL: OffsetQL = newcsOffset - origcsOffset
-        secondOrigcsQL: OffsetQL = origcs.quarterLength - (firstOrigcsQL + newcsQL)
-        secondOrigcsOffset: OffsetQL = newcsOffset + newcsQL
+        firstOrigcsQL: OffsetQL = opFrac(newcsOffset - origcsOffset)
+        secondOrigcsQL: OffsetQL = opFrac(origcs.quarterLength - (firstOrigcsQL + newcsQL))
+        secondOrigcsOffset: OffsetQL = opFrac(newcsOffset + newcsQL)
 
         # first, trim the first bit of origCS
         if firstOrigcsQL > 0:
@@ -1789,7 +1828,7 @@ class MusicEngine:
         # <forward> tag a voice number).
         # Many MusicXML files have rests in secondary voices to do the same thing (and
         # fixOverlappingRests will remove those voices).
-        MusicEngine.fixOverlappingRests(leadSheet)
+        MusicEngine.fixOverlappingNotesAndGaps(leadSheet)
 
         melody: m21.stream.Part
         chords: m21.stream.Part
@@ -1805,7 +1844,9 @@ class MusicEngine:
         # chordsym duration doesn't push the barline out.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
 
+        # inLeadSheet.show('musicxml.pdf', makeNotation=False)
         # leadSheet.show('musicxml.pdf', makeNotation=False)
+
         # testing only
         hr: HarmonyRange
         notes = list(melody.recurse()
@@ -2119,7 +2160,7 @@ class MusicEngine:
                 rest.style.hideObjectOnPrint = True
                 rest.shopit_isPlaceHolder = True  # type: ignore
                 bbMeas.insert(rOffset, rest)
-                rOffset += rest.quarterLength
+                rOffset = opFrac(rOffset + rest.quarterLength)
 
         return shopped, shoppedVoices
 
