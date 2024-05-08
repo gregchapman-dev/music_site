@@ -1352,6 +1352,18 @@ class MusicEngine:
                             voice, highestTime=measureDurQL
                         )
 
+                if nextMeas is None:
+                    # last measure, if it contains nothing of duration, insert hidden rest(s)
+                    # of length meas.barDuration (expected duration due to time signature).
+                    if meas.highestTime == opFrac(0):
+                        theSpace: m21.note.Rest = m21.note.Rest()
+                        theSpace.quarterLength = meas.barDuration.quarterLength
+                        sOffset: OffsetQL = opFrac(0)
+                        for space in M21Utilities.splitComplexRestDuration(theSpace):
+                            space.style.hideObjectOnPrint = True
+                            meas.insert(sOffset, space)
+                            sOffset = opFrac(sOffset + space.quarterLength)
+
     @staticmethod
     def fixOverlappingNotesAndGapsInVoice(
         voice: m21.stream.Voice | m21.stream.Measure,
