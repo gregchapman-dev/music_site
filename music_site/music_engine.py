@@ -1,5 +1,5 @@
 import typing as t
-import sys
+# import sys
 import pathlib
 import re
 import zipfile
@@ -1308,8 +1308,8 @@ class MusicEngine:
                 voices: list[m21.stream.Voice] = list(meas[m21.stream.Voice])
                 if len(voices) > 1:
                     voiceRemoveList: list[m21.stream.Voice] = []
-                    for i, voice in enumerate(voices):
-                        if i == 0:
+                    for v, voice in enumerate(voices):
+                        if v == 0:
                             continue
                         onlyRests: bool = True
                         for gn in voice[m21.note.GeneralNote]:
@@ -1411,6 +1411,7 @@ class MusicEngine:
                     break
 
                 # nextGN starts before gn ends
+
                 if nextGNEndOffset <= gnEndOffset:
                     # nextGN ends before or at end of gn, we can just remove it
                     # (but only if it is a hidden rest, otherwise bail)
@@ -1421,15 +1422,27 @@ class MusicEngine:
                     raise MusicEngineException('Unuseable leadsheet: overlapping notes/rests')
 
                 # nextGN ends after end of gn, so we need to trim the overlap
-                # off the duration, and re-insert later by the overlap amount.
+                # off the duration, and re-insert later by the overlap amount
+                # (but only if nextGN is a hidden rest, otherwise bail).
+                if isinstance(nextGN, m21.note.Rest) and nextGN.style.hideObjectOnPrint:
+                    overlap: OffsetQL = opFrac(gnEndOffset - nextGNStartOffset)
+                    newDurQL: OffsetQL = opFrac(nextGN.quarterLength - overlap)
+                    voice.remove(nextGN)
+                    if newDurQL != 0:
+                        newOffset: OffsetQL = opFrac(nextGNStartOffset + overlap)
+                        nextGN.duration.quarterLength = newDurQL
+                        sOffset = newOffset
+                        for space in M21Utilities.splitComplexRestDuration(nextGN):
+                            space.style.hideObjectOnPrint = True
+                            voice.insert(sOffset, space)
+                            sOffset = opFrac(sOffset + space.quarterLength)
+                    skipNextNInOuterLoop += 1
+                    continue
+
+                if nextGN is None:
+                    raise MusicEngineException('Unuseable leadsheet: overlapping measures')
+
                 raise MusicEngineException('Unuseable leadsheet: overlapping notes/rests')
-#                 overlap: OffsetQL = opFrac(gnEndOffset - nextGNStartOffset)
-#                 newDurQL: OffsetQL = opFrac(nextGN.quarterLength - overlap)
-#                 newOffset: OffsetQL = opFrac(nextGNStartOffset + overlap)
-#                 voice.remove(nextGN)
-#                 if newDurQL != 0:
-#                     nextGN.duration.quarterLength = newDurQL
-#                     voice.insert(newOffset, nextGN)
 
     @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
