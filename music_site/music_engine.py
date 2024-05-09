@@ -444,7 +444,6 @@ class HarmonyRange:
         self.startOffset: OffsetQL = startOffset
         self.endOffset: OffsetQL = endOffset
         self._chord: m21.harmony.ChordSymbol | None = chord
-        self._chordStartOffset: OffsetQL = MAX_OFFSETQL
         self._gNote: m21.note.GeneralNote | None = gNote
 
     def __repr__(self) -> str:
@@ -474,7 +473,6 @@ class HarmonyIterator:
 
         self.lookAheadChord: m21.harmony.ChordSymbol | None = None
         self.lookAheadNote: m21.note.GeneralNote | None = None
-
 
     def __iter__(self):
         self.currRange = None
@@ -582,6 +580,8 @@ class HarmonyIterator:
                     self.currRange = HarmonyRange(
                         opFrac(0), lowestEndOffset, firstChord, firstNote
                     )
+                    self.currChordEnd = firstChordQL
+                    self.currNoteEnd = firstNoteQL
                     return self.currRange
 
                 # we only want the first note (the chord we peeked at is for later)
