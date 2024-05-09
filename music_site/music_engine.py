@@ -1474,15 +1474,14 @@ class MusicEngine:
         # of the next measure, with the remainder of the duration.
         # We make the simplifying assumption (for now) that any given ChordSymbol
         # will only cross one barline.
-
-        # TODO: deal with two chordsyms at the same offset; they should both last until
-        # the _next_ chord.
+        # This routine also handles simultaneous chords, giving them the same duration
+        # (lasting until the next non-simultaneous chord).
 
         pf = piece.flatten()
         onlyChords = list(pf.getElementsByClass(m21.harmony.ChordSymbol))
 
         first = True
-        lastChord = None
+        lastChords: list[m21.harmony.ChordSymbol] = []
 
         if len(onlyChords) == 0:
             return piece
@@ -1490,16 +1489,13 @@ class MusicEngine:
         for cs in onlyChords:
             if first:
                 first = False
-                lastChord = cs
+                lastChords = [cs]
                 continue
-
-            if t.TYPE_CHECKING:
-                assert lastChord is not None
 
             # last/thisChordMeas might be Voices; if so I hope they are both
             # at offset 0 in their respective Measures.
             lastChordMeas: m21.stream.Stream | None = piece.containerInHierarchy(
-                lastChord, setActiveSite=False)
+                lastChords[-1], setActiveSite=False)
             thisChordMeas: m21.stream.Stream | None = piece.containerInHierarchy(
                 cs, setActiveSite=False)
 
@@ -1507,9 +1503,14 @@ class MusicEngine:
                 assert lastChordMeas is not None
                 assert thisChordMeas is not None
 
-            qlDiff = pf.elementOffset(cs) - pf.elementOffset(lastChord)
+            qlDiff = pf.elementOffset(cs) - pf.elementOffset(lastChords[-1])
+            if qlDiff == 0.0:
+                lastChords.append(cs)
+                continue
+
             if lastChordMeas is thisChordMeas:
-                lastChord.duration.quarterLength = qlDiff
+                for lc in lastChords:
+                    lc.duration.quarterLength = qlDiff
             else:
                 # loop over all the measures from lastChordMeas through thisChordMeas,
                 # doling out a deepcopy of lastChord of an appropriate duration to each
@@ -1521,17 +1522,19 @@ class MusicEngine:
                 for meas in piece[m21.stream.Measure]:
                     if meas is lastChordMeas:
                         lastChordOffsetInMeas: OffsetQL = (
-                            lastChord.getOffsetInHierarchy(lastChordMeas)
+                            lastChords[-1].getOffsetInHierarchy(lastChordMeas)
                         )
                         ql: OffsetQL = opFrac(lastChordMeas.quarterLength - lastChordOffsetInMeas)
                         if ql != 0:
                             # no deepcopy or insertion; lastChord is already in place
-                            lastChord.quarterLength = ql
+                            for lc in lastChords:
+                                lc.quarterLength = ql
                         else:
                             # lastChord is at the very end of lastChordMeas (and since
                             # we're going to propagate it into the next measure, is
                             # unnecessary here).  Remove it.
-                            lastChordMeas.remove(lastChord, recurse=True)
+                            for lc in lastChords:
+                                lastChordMeas.remove(lc, recurse=True)
 
                         fullMeasuresNow = True
                         continue
@@ -1540,26 +1543,25 @@ class MusicEngine:
                         fullMeasuresNow = False
                         thisChordOffsetInMeas: OffsetQL = cs.getOffsetInHierarchy(thisChordMeas)
                         if thisChordOffsetInMeas > 0:
-                            chord = deepcopy(lastChord)
-                            chord.quarterLength = thisChordOffsetInMeas
-                            meas.insert(0, chord)
+                            for lc in lastChords:
+                                chord = deepcopy(lc)
+                                chord.quarterLength = thisChordOffsetInMeas
+                                meas.insert(0, chord)
                         # we're done, so break out of measure loop
                         break
 
                     if fullMeasuresNow:
                         # we only get here for measures between lastChordMeas and thisChordMeas
-                        chord = deepcopy(lastChord)
-                        chord.quarterLength = meas.quarterLength
-                        meas.insert(0, chord)
+                        for lc in lastChords:
+                            chord = deepcopy(lc)
+                            chord.quarterLength = meas.quarterLength
+                            meas.insert(0, chord)
 
-            lastChord = cs
+            lastChords = [cs]
 
-        # on exit from the loop, all but lastChord has been handled
-        if t.TYPE_CHECKING:
-            assert lastChord is not None
-
+        # on exit from the loop, all but lastChords has been handled
         thisChordMeas = list(piece[m21.stream.Measure])[-1]
-        lastChordMeas = piece.containerInHierarchy(lastChord, setActiveSite=False)
+        lastChordMeas = piece.containerInHierarchy(lastChords[-1], setActiveSite=False)
         if t.TYPE_CHECKING:
             assert lastChordMeas is not None
 
@@ -1572,17 +1574,19 @@ class MusicEngine:
         for meas in piece[m21.stream.Measure]:
             if meas is lastChordMeas:
                 lastChordOffsetInMeas = (
-                    lastChord.getOffsetInHierarchy(lastChordMeas)
+                    lastChords[-1].getOffsetInHierarchy(lastChordMeas)
                 )
                 ql = lastChordMeas.quarterLength - lastChordOffsetInMeas
                 if ql != 0:
                     # no deepcopy or insertion; lastChord is already in place
-                    lastChord.quarterLength = ql
+                    for lc in lastChords:
+                        lc.quarterLength = ql
                 else:
                     # lastChord is at the very end of lastChordMeas (and since
                     # we're going to propagate it into the next measure, is
                     # unnecessary here).  Remove it.
-                    lastChordMeas.remove(lastChord, recurse=True)
+                    for lc in lastChords:
+                        lastChordMeas.remove(lc, recurse=True)
 
                 fullMeasuresNow = True
                 continue
@@ -1591,33 +1595,27 @@ class MusicEngine:
                 fullMeasuresNow = False
                 # Change from loop above: there is no thisChord, so just
                 # fill out the entire last measure with lastChord.
-                chord = deepcopy(lastChord)
-                chord.quarterLength = thisChordMeas.quarterLength
-                meas.insert(0, chord)
+                for lc in lastChords:
+                    chord = deepcopy(lc)
+                    chord.quarterLength = thisChordMeas.quarterLength
+                    meas.insert(0, chord)
                 # we're done, so break out of measure loop
                 break
 
             if fullMeasuresNow:
                 # we only get here for measures between lastChordMeas and thisChordMeas
-                chord = deepcopy(lastChord)
-                chord.quarterLength = meas.quarterLength
-                meas.insert(0, chord)
+                for lc in lastChords:
+                    chord = deepcopy(lc)
+                    chord.quarterLength = meas.quarterLength
+                    meas.insert(0, chord)
 
     @staticmethod
     def getChordSymbolInHarmonyRange(
         chords: m21.stream.Part,
         hr: HarmonyRange,
     ) -> m21.harmony.ChordSymbol | None:
-        csList: list[m21.harmony.ChordSymbol] = list(
-            chords.recurse()
-            .getElementsByOffsetInHierarchy(
-                hr.startOffset,
-                hr.endOffset,
-                includeEndBoundary=False,
-                mustFinishInSpan=False,
-                mustBeginInSpan=False,
-                includeElementsThatEndAtStart=False)
-            .getElementsByClass(m21.harmony.ChordSymbol)
+        csList: list[m21.harmony.ChordSymbol] = (
+            MusicEngine.getChordSymbolsInHarmonyRange(chords, hr)
         )
         if len(csList) > 1:
             raise MusicEngineException(
@@ -1627,19 +1625,54 @@ class MusicEngine:
         return csList[0] if csList else None
 
     @staticmethod
+    def getChordSymbolsInHarmonyRange(
+        chords: m21.stream.Part,
+        hr: HarmonyRange,
+    ) -> list[m21.harmony.ChordSymbol]:
+        includeEndBoundary: bool = False
+        includeElementsThatEndAtStart: bool = False
+        if hr.startOffset == hr.endOffset:
+            # we normally don't include end boundary, but if the start is the end,
+            # we need to include that timestamp.
+            includeEndBoundary = True
+            includeElementsThatEndAtStart = True
+
+        csList: list[m21.harmony.ChordSymbol] = list(
+            chords.recurse()
+            .getElementsByOffsetInHierarchy(
+                hr.startOffset,
+                hr.endOffset,
+                includeEndBoundary=includeEndBoundary,
+                mustFinishInSpan=False,
+                mustBeginInSpan=False,
+                includeElementsThatEndAtStart=includeElementsThatEndAtStart)
+            .getElementsByClass(m21.harmony.ChordSymbol)
+        )
+
+        return csList
+
+    @staticmethod
     def getMelodyNoteInHarmonyRange(
         melody: m21.stream.Part,
         hr: HarmonyRange,
     ) -> m21.note.GeneralNote | None:
+        includeEndBoundary: bool = False
+        includeElementsThatEndAtStart: bool = False
+        if hr.startOffset == hr.endOffset:
+            # we normally don't include end boundary, but if the start is the end,
+            # we need to include that timestamp.
+            includeEndBoundary = True
+            includeElementsThatEndAtStart = True
+
         noteList: list[m21.note.Note] = list(
             melody.recurse()
             .getElementsByOffsetInHierarchy(
                 hr.startOffset,
                 hr.endOffset,
-                includeEndBoundary=False,
+                includeEndBoundary=includeEndBoundary,
                 mustFinishInSpan=False,
                 mustBeginInSpan=False,
-                includeElementsThatEndAtStart=False)
+                includeElementsThatEndAtStart=includeElementsThatEndAtStart)
             .getElementsByClass(m21.note.GeneralNote)
             .getElementsNotOfClass(m21.harmony.ChordSymbol)
         )
@@ -1649,6 +1682,101 @@ class MusicEngine:
             )
 
         return noteList[0] if noteList else None
+
+    @staticmethod
+    def pickBestChordSymbol(
+        chordSyms: list[m21.harmony.ChordSymbol],
+        melodyNote: m21.note.GeneralNote | None
+    ) -> m21.harmony.ChordSymbol:
+        def numNotes(cs: m21.harmony.ChordSymbol) -> int:
+            return len(cs.pitches)
+
+        sortedChords: list[m21.harmony.ChordSymbol] = copy(chordSyms)
+        sortedChords = sorted(sortedChords, key=numNotes, reverse=True)
+
+        matchingChords: list[m21.harmony.ChordSymbol] = []
+        if not isinstance(melodyNote, m21.note.Note):
+            # all the chords match
+            matchingChords = copy(sortedChords)
+        else:
+            # find the chords that contain the melodyNote's pitch (ignoring octave)
+            melodyPitchName: PitchName = PitchName(melodyNote.pitch.name)
+            for cs in sortedChords:
+                chordPitchNames = (
+                    MusicEngine.getChordVocalParts(
+                        Chord(cs),
+                        melodyPitchName
+                    ).values()
+                )
+                if melodyPitchName in chordPitchNames:
+                    matchingChords.append(cs)
+
+        if matchingChords:
+            return matchingChords[0]
+
+        # none of them have the melody note, just return the first one
+        return sortedChords[0]
+
+    @staticmethod
+    def pickBetweenSimultaneousChords(melody: m21.stream.Part, chords: m21.stream.Part):
+        chordSyms: list[m21.harmony.ChordSymbol] = list(
+            chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
+        )
+
+        skipN: int = 0
+        for i, cs in enumerate(chordSyms):
+            # skip forward skipN chord symbols, driving skipN to zero
+            if skipN:
+                skipN -= 1
+                continue
+
+            offset: OffsetQL = cs.getOffsetInHierarchy(chords)
+            chordSymsAtOffset: list[m21.harmony.ChordSymbol] = []
+
+            chordSymsAtOffset.append(cs)
+
+            for j in range(i + 1, len(chordSyms)):
+                csj: m21.harmony.ChordSymbol = chordSyms[j]
+                if offset != csj.getOffsetInHierarchy(chords):
+                    break
+                chordSymsAtOffset.append(csj)
+                skipN += 1
+
+            if len(chordSymsAtOffset) <= 1:
+                # skip when we don't have multiple simultaneous chords
+                continue
+
+            noteList: list[m21.note.Note] = list(
+                melody.recurse()
+                .getElementsByOffsetInHierarchy(
+                    offset,
+                    mustFinishInSpan=False,
+                    mustBeginInSpan=False,
+                    includeElementsThatEndAtStart=False)
+                .getElementsByClass(m21.note.GeneralNote)
+                .getElementsNotOfClass(m21.harmony.ChordSymbol)
+            )
+            if len(noteList) > 1:
+                raise MusicEngineException('more than one note at chord start')
+
+            melodyNoteAtOffset: m21.note.GeneralNote | None = None
+            if noteList:
+                melodyNoteAtOffset = noteList[0]
+
+            bestcso: m21.harmony.ChordSymbol = (
+                MusicEngine.pickBestChordSymbol(chordSymsAtOffset, melodyNoteAtOffset)
+            )
+
+            for cso in chordSymsAtOffset:
+                # remove all except bestcs
+                if cso is bestcso:
+                    continue
+
+                cVoice = chords.containerInHierarchy(cso, setActiveSite=False)
+                if cVoice is None:
+                    raise MusicEngineException('cso not in chords')
+
+                cVoice.remove(cso)
 
     @staticmethod
     def addChordOptionsForNonPillarNotes(melody: m21.stream.Part, chords: m21.stream.Part):
@@ -1935,6 +2063,12 @@ class MusicEngine:
         # with an added "bugfix" that splits chordsyms across barlines, so the new
         # chordsym duration doesn't push the barline out.
         MusicEngine.realizeChordSymbolDurations(leadSheet)
+
+        # if there are simultaneous chords (same offset) we should pick one
+        # and remove the others.  Pick one that has the melody note in it,
+        # if possible.
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
+        MusicEngine.pickBetweenSimultaneousChords(melody, chords)
 
         # inLeadSheet.show('musicxml.pdf', makeNotation=False)
         # leadSheet.show('musicxml.pdf', makeNotation=False)
