@@ -1960,7 +1960,7 @@ class MusicEngine:
         # Any time the melody note is not in the chord, find some options for
         # better chords, insert one (adjusting other chords' durations as
         # necessary), and note the others somehow, so the user can choose.
-        leadSheet.show('musicxml.pdf', makeNotation=False)
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
         MusicEngine.addChordOptionsForNonPillarNotes(melody, chords)
         # leadSheet.show('musicxml.pdf', makeNotation=False)
 
