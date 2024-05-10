@@ -1467,6 +1467,22 @@ class MusicEngine:
                 raise MusicEngineException('Unuseable leadsheet: overlapping notes/rests')
 
     @staticmethod
+    def fixChordSymbolsAtEndOfMeasure(chords: m21.stream.Part):
+        measList: list[m21.stream.Measure] = list(chords[m21.stream.Measure])
+        for i, meas in enumerate(measList):
+            measHighestTime: OffsetQL = meas.highestTime
+
+            # Move any ChordSymbol at end of meas to offset 0 in nextMeas
+            # (unless there is no nextMeas, then just remove it from meas,
+            # because it doesn't apply to any notes).
+            for cs in meas[m21.harmony.ChordSymbol]:
+                if cs.getOffsetInHierarchy(meas) == measHighestTime:
+                    meas.remove(cs)
+                    if i < len(measList) - 1:
+                        nextMeas: m21.stream.Measure = measList[i + 1]
+                        nextMeas.insert(0, cs)
+
+    @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
         # this is a copy of m21.harmony.realizeChordSymbolDurations, that instead
         # of extending a chordsym duration beyond the end-of-measure, will extend
@@ -2053,6 +2069,9 @@ class MusicEngine:
         melody: m21.stream.Part
         chords: m21.stream.Part
         melody, chords = MusicEngine.useAsLeadSheet(leadSheet)
+
+        # move chords at very end of measure to very beginning of next measure
+        MusicEngine.fixChordSymbolsAtEndOfMeasure(chords)
 
         # more fixups to the leadsheet score
         M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
