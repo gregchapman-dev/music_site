@@ -19,15 +19,6 @@ def runTheTest(inputPath: Path) -> bool:
     assert score1 is not None
     assert score1.isWellFormedNotation()
 
-    # Some MusicXML files have abbreviations instead of chordKinds (e.g. 'min' instead of
-    # the correct 'minor').  Fix that before the diff is performed.
-    M21Utilities.fixupBadChordKinds(score1, inPlace=True)
-
-    # Some MusicXML files have beams that go 'start'/'continue' when they should be
-    # 'start'/'stop'. fixupBadBeams notices that the next beam is a 'start', or is
-    # not present at all, and therefore patches that 'continue' to be a 'stop'.
-    M21Utilities.fixupBadBeams(score1, inPlace=True)
-
     print('shopping score for lower and upper voices')
     lowerShop: m21.stream.Score = (
         MusicEngine.shopPillarMelodyNotesFromLeadSheet(score1, ArrangementType.LowerVoices)
