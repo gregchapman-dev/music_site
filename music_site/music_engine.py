@@ -1473,14 +1473,21 @@ class MusicEngine:
             measHighestTime: OffsetQL = meas.highestTime
 
             # Move any ChordSymbol at end of meas to offset 0 in nextMeas
-            # (unless there is no nextMeas, then just remove it from meas,
-            # because it doesn't apply to any notes).
+            # (unless there is no nextMeas, or there is already a ChordSymbol
+            # there, then just remove it from meas).
             for cs in meas[m21.harmony.ChordSymbol]:
                 if cs.getOffsetInHierarchy(meas) == measHighestTime:
                     meas.remove(cs)
                     if i < len(measList) - 1:
                         nextMeas: m21.stream.Measure = measList[i + 1]
-                        nextMeas.insert(0, cs)
+                        csList: list[m21.harmony.ChordSymbol] = list(
+                            nextMeas
+                            .recurse()
+                            .getElementsByOffsetInHierarchy(0)
+                            .getElementsByClass(m21.harmony.ChordSymbol)
+                        )
+                        if not csList:
+                            nextMeas.insert(0, cs)
 
     @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
