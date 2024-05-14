@@ -1742,7 +1742,7 @@ class MusicEngine:
                     return cs
             for cs in matchingChords:
                 # see if there is some other 7th
-                if cs.isSeventh:
+                if cs.isSeventh():
                     return cs
 
             # default to chord with most notes (that also has melody note in it)
@@ -1755,7 +1755,7 @@ class MusicEngine:
                 return cs
         for cs in sortedChords:
             # see if there is some other 7th
-            if cs.isSeventh:
+            if cs.isSeventh():
                 return cs
 
         # default to chord with most notes
