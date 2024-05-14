@@ -1711,11 +1711,12 @@ class MusicEngine:
         chordSyms: list[m21.harmony.ChordSymbol],
         melodyNote: m21.note.GeneralNote | None
     ) -> m21.harmony.ChordSymbol:
-        def numNotes(cs: m21.harmony.ChordSymbol) -> int:
-            return len(cs.pitches)
+        def pitchClassCardinality(cs: m21.harmony.ChordSymbol) -> int:
+            return cs.pitchClassCardinality
 
-        sortedChords: list[m21.harmony.ChordSymbol] = copy(chordSyms)
-        sortedChords = sorted(sortedChords, key=numNotes, reverse=True)
+        sortedChords: list[m21.harmony.ChordSymbol] = (
+            sorted(chordSyms, key=pitchClassCardinality, reverse=True)
+        )
 
         matchingChords: list[m21.harmony.ChordSymbol] = []
         if not isinstance(melodyNote, m21.note.Note):
@@ -1735,10 +1736,44 @@ class MusicEngine:
                     matchingChords.append(cs)
 
         if matchingChords:
+            for cs in matchingChords:
+                # see if there is a barbershop 7th
+                if MusicEngine.isBarbershopSeventh(cs):
+                    return cs
+            for cs in matchingChords:
+                # see if there is some other 7th
+                if cs.isSeventh:
+                    return cs
+
+            # default to chord with most notes (that also has melody note in it)
             return matchingChords[0]
 
-        # none of them have the melody note, just return the first one
+        # none of them have the melody note
+        for cs in sortedChords:
+            # see if there is a barbershop 7th
+            if MusicEngine.isBarbershopSeventh(cs):
+                return cs
+        for cs in sortedChords:
+            # see if there is some other 7th
+            if cs.isSeventh:
+                return cs
+
+        # default to chord with most notes
         return sortedChords[0]
+
+    @staticmethod
+    def isBarbershopSeventh(cs: m21.harmony.ChordSymbol) -> bool:
+        if cs.chordKind == 'dominant-seventh':
+            return True
+
+        # Work backward from the underlying pitches instead (because maybe there is no
+        # cs.chordKind, or cs.chordKind is 'pedal' or 'power' or 'major' with other
+        # added degrees, or other weirdness).
+        cs1: m21.harmony.ChordSymbol = m21.harmony.chordSymbolFromChord(cs)
+        if cs1.chordKind == 'dominant-seventh':
+            return True
+
+        return False
 
     @staticmethod
     def pickBetweenSimultaneousChords(melody: m21.stream.Part, chords: m21.stream.Part):
