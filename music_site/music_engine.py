@@ -384,15 +384,14 @@ class VocalRangeInfo:
             if n.pitch > self.fullRange.highest:
                 self.fullRange.highest = deepcopy(n.pitch)
 
-    def getTranspositionSemitones(
+    def getSemitonesAdjustments(
         self,
-        partName: PartName,
         arrType: ArrangementType
-    ) -> int:
+    ) -> tuple[int, int, int]:
         if self.fullRange is None:
-            raise MusicEngineException('getTranspositionSemitones called on empty VocalRange')
+            raise MusicEngineException('getSemitonesAdjustments called on empty VocalRange')
 
-        goalRange: VocalRange = PART_RANGES[arrType][partName]
+        goalRange: VocalRange = PART_RANGES[arrType][PartName.Lead]
         currRange: VocalRange = self.fullRange
 
         # We do all of our computations in terms of semitones-too-low, because we want
@@ -409,24 +408,59 @@ class VocalRangeInfo:
 
         semitonesTooLow: int = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
 
-        # if lowEndSemitonesTooLow > 0:
-        #     # we need to transpose up a bit
-        #     if highEndSemitonesTooLow <= 0:
-        #         # no room to transpose up
-        #         # Strike a compromise
-        #         semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
-        #     else:
-        #         semitonesTooLow = round(lowEndSemitonesTooLow)
-        # elif highEndSemitonesTooLow < 0:
-        #     # we need to transpose down a bit
-        #     if lowEndSemitonesTooLow >= 0:
-        #         # no room to transpose down
-        #         # Strike a compromise
-        #         semitonesTooLow = round((lowEndSemitonesTooLow + highEndSemitonesTooLow) / 2.)
-        #     else:
-        #         semitonesTooLow = round(highEndSemitonesTooLow)
+        return semitonesTooLow, round(lowEndSemitonesTooLow), round(highEndSemitonesTooLow)
 
+    def getTranspositionSemitones(
+        self,
+        arrType: ArrangementType,
+        returnLowAndHigh: bool = False
+    ) -> int:
+        if self.fullRange is None:
+            raise MusicEngineException('getTranspositionSemitones called on empty VocalRange')
+
+        semitonesTooLow: int = self.getSemitonesAdjustments(arrType)[0]
         return semitonesTooLow
+
+    def getAdjustedPartRanges(self) -> dict[ArrangementType, dict[PartName, VocalRange]]:
+        def transposeBySemitones(
+            vr: VocalRange,
+            lowSemitones: int,
+            highSemitones: int
+        ) -> VocalRange:
+            newVR: VocalRange = VocalRange(
+                vr.lowest.transpose(lowSemitones),
+                vr.highest.transpose(highSemitones)
+            )
+            return newVR
+
+        newRanges: dict[ArrangementType, dict[PartName, VocalRange]] = {}
+        for arrType, rangeDict in PART_RANGES.items():
+            transpositionSemitones: int
+            lowEndSemitonesTooLow: int
+            highEndSemitonesTooLow: int
+            transpositionSemitones, lowEndSemitonesTooLow, highEndSemitonesTooLow = (
+                self.getSemitonesAdjustments(arrType)
+            )
+            # Assume transposition by transpositionSemitones
+            lowEndSemitonesTooLow -= transpositionSemitones
+            highEndSemitonesTooLow -= transpositionSemitones
+
+            # if self.fullRange is less than normal part range, don't bother shrinking
+            # the other parts (that would be silly).
+
+            # if lowEndSemitonesTooLow is < 0, low end is too high: ignore it
+            lowEndSemitonesTooLow = max(lowEndSemitonesTooLow, 0)
+            # if highEndSemitonesTooLow is > 0, high end is too low; ignore it
+            highEndSemitonesTooLow = min(highEndSemitonesTooLow, 0)
+
+            newRanges[arrType] = {}
+            for partName, vocalRange in rangeDict.items():
+                newRanges[arrType][partName] = transposeBySemitones(
+                    vocalRange, -lowEndSemitonesTooLow, -highEndSemitonesTooLow
+                )
+
+        return newRanges
+
 
 class HarmonyRange:
     def __init__(
@@ -1787,7 +1821,7 @@ class MusicEngine:
             if cs1.chordKind == 'dominant-seventh':
                 return True
         except Exception:
-            # bug in m21.harmony.chordSymbolFromChord?
+            # m21.harmony.chordSymbolFromChord crashes (bug?) on chords with adds/omits/alters
             pass
 
         return False
@@ -2184,8 +2218,24 @@ class MusicEngine:
         # Now pick a key that will work for lead voice range, and transpose.
         melodyInfo: VocalRangeInfo = VocalRangeInfo(melody)
         semitones: int = (
-            melodyInfo.getTranspositionSemitones(PartName.Lead, arrType)
+            melodyInfo.getTranspositionSemitones(arrType)
         )
+
+        # if the melodyInfo (after transposition) will still go out of range,
+        # it will at least be centered around the lead range (it will go out
+        # a similar amount above and below).  Figure out how much above and below
+        # it will go, and increase the other part ranges similarly.  Hey, you
+        # picked a rangy song, so your whole quartet needs to be as rangy as
+        # your lead (otherwise the bass will end up above the lead, and the
+        # tenor below the lead).
+        # Note: this assumes you will have transposed the melody by
+        # melodyInfo.getTranspositionSemitones(arrType). i.e. it will
+        # return a lead range that is transposed from the melody range,
+        # along with the other similarly transposed part ranges.
+        adjustedPartRanges: dict[ArrangementType, dict[PartName, VocalRange]] = (
+            melodyInfo.getAdjustedPartRanges()
+        )
+        partRanges: dict[PartName, VocalRange] = adjustedPartRanges[arrType]
 
         # Transpose the whole leadSheet score by that number of semitones
         # (in place). Note that if we're doing a LowerVoices arrangement
@@ -2223,6 +2273,7 @@ class MusicEngine:
         shoppedVoices: list[FourVoices]
         shopped, shoppedVoices = MusicEngine.processPillarChordsLead(
             arrType,
+            partRanges,
             melody,
             chords,
             leadSheet.metadata
@@ -2233,7 +2284,7 @@ class MusicEngine:
         # (the melody pillar notes), potentially tweaking other already harmonized
         # parts as we go, to get better voice leading.
         for partName in (PartName.Bass, PartName.Tenor, PartName.Bari):
-            MusicEngine.processPillarChordsHarmony(arrType, partName, shoppedVoices, chords)
+            MusicEngine.processPillarChordsHarmony(partRanges, partName, shoppedVoices, chords)
 
         # We can't do this on the fly in processPillarChordsHarmony, because sometimes
         # parts trade notes, so the accidental might never be computed.  e.g. the bari
@@ -2268,6 +2319,7 @@ class MusicEngine:
     @staticmethod
     def processPillarChordsLead(
         arrType: ArrangementType,
+        partRanges: dict[PartName, VocalRange],
         melody: m21.stream.Part,
         chords: m21.stream.Part,
         metadata: m21.metadata.Metadata
@@ -2468,7 +2520,7 @@ class MusicEngine:
 
     @staticmethod
     def processPillarChordsHarmony(
-        arrType: ArrangementType,
+        partRanges: dict[PartName, VocalRange],
         partName: PartName,
         shoppedVoices: list[FourVoices],
         chords: m21.stream.Part
@@ -2581,7 +2633,7 @@ class MusicEngine:
 
                 if partName == PartName.Bass:
                     MusicEngine.harmonizePillarChordBass(
-                        arrType,
+                        partRanges,
                         currMeasure,
                         offset,
                         chord,
@@ -2590,7 +2642,7 @@ class MusicEngine:
                     )
                 elif partName == PartName.Tenor:
                     MusicEngine.harmonizePillarChordTenor(
-                        arrType,
+                        partRanges,
                         currMeasure,
                         offset,
                         chord,
@@ -2599,7 +2651,7 @@ class MusicEngine:
                     )
                 elif partName == PartName.Bari:
                     MusicEngine.harmonizePillarChordBari(
-                        arrType,
+                        partRanges,
                         currMeasure,
                         offset,
                         chord,
@@ -2833,7 +2885,7 @@ class MusicEngine:
 
     @staticmethod
     def harmonizePillarChordBass(
-        arrType: ArrangementType,
+        partRanges: dict[PartName, VocalRange],
         measure: FourVoices,
         offset: OffsetQL,
         pillarChord: Chord,
@@ -2854,9 +2906,9 @@ class MusicEngine:
         # adjust any other part.
 
         if isinstance(pillarChord.sym, m21.harmony.NoChord):
-            raise MusicEngineException('harmonizePillarChordPart: NoChord is not a pillar chord')
+            raise MusicEngineException('harmonizePillarChordBass: NoChord is not a pillar chord')
 
-        partRange: VocalRange = PART_RANGES[arrType][PartName.Bass]
+        partRange: VocalRange = partRanges[PartName.Bass]
 
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
         bass: m21.note.Note | None = None
@@ -3106,7 +3158,7 @@ class MusicEngine:
 
     @staticmethod
     def harmonizePillarChordTenor(
-        arrType: ArrangementType,
+        partRanges: dict[PartName, VocalRange],
         measure: FourVoices,
         offset: OffsetQL,
         pillarChord: Chord,
@@ -3125,9 +3177,9 @@ class MusicEngine:
         # necessary).
 
         if isinstance(pillarChord.sym, m21.harmony.NoChord):
-            raise MusicEngineException('harmonizePillarChordPart: NoChord is not a pillar chord')
+            raise MusicEngineException('harmonizePillarChordTenor: NoChord is not a pillar chord')
 
-        partRange: VocalRange = PART_RANGES[arrType][PartName.Tenor]
+        partRange: VocalRange = partRanges[PartName.Tenor]
 
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
         bass: m21.note.Note = thisFourNotes[PartName.Bass]
@@ -3207,7 +3259,7 @@ class MusicEngine:
 
     @staticmethod
     def harmonizePillarChordBari(
-        arrType: ArrangementType,
+        partRanges: dict[PartName, VocalRange],
         measure: FourVoices,
         offset: OffsetQL,
         pillarChord: Chord,
@@ -3226,10 +3278,10 @@ class MusicEngine:
         # them as necessary).
 
         if isinstance(pillarChord.sym, m21.harmony.NoChord):
-            raise MusicEngineException('harmonizePillarChordPart: NoChord is not a pillar chord')
+            raise MusicEngineException('harmonizePillarChordBari: NoChord is not a pillar chord')
 
-        bariPartRange: VocalRange = PART_RANGES[arrType][PartName.Bari]
-        tenorPartRange: VocalRange = PART_RANGES[arrType][PartName.Tenor]
+        bariPartRange: VocalRange = partRanges[PartName.Bari]
+        tenorPartRange: VocalRange = partRanges[PartName.Tenor]
 
         tenor: m21.note.Note = thisFourNotes[PartName.Tenor]
         lead: m21.note.Note = thisFourNotes[PartName.Lead]
@@ -3261,15 +3313,15 @@ class MusicEngine:
             # the bari.
             oldBari: m21.note.Note = bari
             oldTenor: m21.note.Note = tenor
-            bari = MusicEngine.copyNote(oldTenor)
-            tenor = MusicEngine.copyNote(oldBari)
+            bari = MusicEngine.makeNote(PitchName(oldTenor.pitch.name), copyFrom=lead, above=bass)
+            tenor = MusicEngine.makeNote(PitchName(oldBari.pitch.name), copyFrom=lead, above=lead)
             MusicEngine.moveIntoRange(bari, bariPartRange)
             MusicEngine.moveIntoRange(tenor, tenorPartRange)
             tenorChanged = True
         elif bari.pitch > tenor.pitch:
-            # trade with the tenor (this time we're probably taking the tenor note
-            # as is, and the tenor is taking our note as is.  But moveIntoRange
-            # anyway, to be sure.
+            # trade with the tenor (this time the bari is taking the tenor note as is,
+            # and the tenor is taking the bari note as is).  But moveIntoRange anyway,
+            # to be sure.
             oldBari = bari
             oldTenor = tenor
             bari = MusicEngine.copyNote(oldTenor)
