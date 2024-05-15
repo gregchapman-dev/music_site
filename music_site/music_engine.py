@@ -1721,10 +1721,12 @@ class MusicEngine:
         matchingChords: list[m21.harmony.ChordSymbol] = []
         if not isinstance(melodyNote, m21.note.Note):
             # all the chords match
+            # print(f'melodyPitchName: None (probably a Rest)')
             matchingChords = copy(sortedChords)
         else:
             # find the chords that contain the melodyNote's pitch (ignoring octave)
             melodyPitchName: PitchName = PitchName(melodyNote.pitch.name)
+            # print(f'melodyPitchName: {melodyPitchName}')
             for cs in sortedChords:
                 chordPitchNames = (
                     MusicEngine.getChordVocalParts(
@@ -1735,30 +1737,41 @@ class MusicEngine:
                 if melodyPitchName in chordPitchNames:
                     matchingChords.append(cs)
 
+        # print(f'sortedChords: {sortedChords}')
+        # print(f'matchingChords: {matchingChords}')
+
         if matchingChords:
+            # print('found a match')
             for cs in matchingChords:
                 # see if there is a barbershop 7th
                 if MusicEngine.isBarbershopSeventh(cs):
+                    # print(f'returning dom7 {cs}')
                     return cs
             for cs in matchingChords:
                 # see if there is some other 7th
                 if cs.isSeventh():
+                    # print(f'returning other 7th {cs}')
                     return cs
 
             # default to chord with most notes (that also has melody note in it)
+            # print(f'returning first chord {matchingChords[0]}')
             return matchingChords[0]
 
+        # print('found NO match')
         # none of them have the melody note
         for cs in sortedChords:
             # see if there is a barbershop 7th
             if MusicEngine.isBarbershopSeventh(cs):
+                # print(f'returning dom7 {cs}')
                 return cs
         for cs in sortedChords:
             # see if there is some other 7th
             if cs.isSeventh():
+                # print(f'returning other 7th {cs}')
                 return cs
 
         # default to chord with most notes
+        # print(f'returning first chord {sortedChords[0]}')
         return sortedChords[0]
 
     @staticmethod
@@ -1769,9 +1782,13 @@ class MusicEngine:
         # Work backward from the underlying pitches instead (because maybe there is no
         # cs.chordKind, or cs.chordKind is 'pedal' or 'power' or 'major' with other
         # added degrees, or other weirdness).
-        cs1: m21.harmony.ChordSymbol = m21.harmony.chordSymbolFromChord(cs)
-        if cs1.chordKind == 'dominant-seventh':
-            return True
+        try:
+            cs1: m21.harmony.ChordSymbol = m21.harmony.chordSymbolFromChord(cs)
+            if cs1.chordKind == 'dominant-seventh':
+                return True
+        except Exception:
+            # bug in m21.harmony.chordSymbolFromChord?
+            pass
 
         return False
 
@@ -2220,7 +2237,7 @@ class MusicEngine:
 
         # We can't do this on the fly in processPillarChordsHarmony, because sometimes
         # parts trade notes, so the accidental might never be computed.  e.g. the bari
-        # takes a bass note (that has correctly computed accidental) and gives the bass
+        # takes a tenor note (that has correctly computed accidental) and gives the tenor
         # a different note (that hasn't yet had its accidental computed).
         MusicEngine.makeAccidentals(shoppedVoices)
 
@@ -3233,52 +3250,43 @@ class MusicEngine:
             copyFrom=lead,
             below=tenor
         )
-        if bariPartRange.isTooHigh(bari.pitch):
-            bari = MusicEngine.makeNote(
-                availablePitchNames[0],
-                copyFrom=lead,
-                below=tenor,
-                extraOctaves=1
-            )
+        MusicEngine.moveIntoRange(bari, bariPartRange)
+
+        tenorChanged: bool = False
 
         if bari.pitch < bass.pitch:
-            # bari is below the bass, that's not right.  Trade pitches with bass.
-            bari = MusicEngine.copyNote(bass)
-            bass = MusicEngine.makeAndInsertNote(
-                availablePitchNames[0],
-                copyFrom=bass,
-                replacedNote=bass,
-                below=bari,
-                voice=measure[PartName.Bass],
-                offset=offset,
-            )
-
-        if bariPartRange.isOutOfRange(bari.pitch):
-            # can we trade with tenor?  (switching octaves to stay in range if necessary)
-            badBari: m21.note.Note = bari
-            bari = MusicEngine.copyNote(tenor)
-            tenor = MusicEngine.copyNote(badBari)
-
-            if bariPartRange.isTooHigh(bari.pitch):
-                bari.pitch.octave -= 1  # type: ignore
-            elif bariPartRange.isTooLow(bari.pitch):
-                bari.pitch.octave += 1  # type: ignore
-
-            if tenorPartRange.isTooLow(tenor.pitch):
-                tenor.pitch.octave += 1  # type: ignore
-            elif tenorPartRange.isTooHigh(tenor.pitch):
-                tenor.pitch.octave -= 1  # type: ignore
-
-        if bariPartRange.isOutOfRange(bari.pitch):
-            raise MusicEngineException('failed to find a bari note for a pillar chord')
-        if tenorPartRange.isOutOfRange(tenor.pitch):
-            raise MusicEngineException('failed to trade for a bari note for a pillar chord')
+            # bari is below the bass, that's not right.  We need to push the tenor up to
+            # the bari pitch (in a higher octave), and take the tenor pitch (in the bari
+            # range.  We're just spreading the chord upward, since there wasn't room for
+            # the bari.
+            oldBari: m21.note.Note = bari
+            oldTenor: m21.note.Note = tenor
+            bari = MusicEngine.copyNote(oldTenor)
+            tenor = MusicEngine.copyNote(oldBari)
+            MusicEngine.moveIntoRange(bari, bariPartRange)
+            MusicEngine.moveIntoRange(tenor, tenorPartRange)
+            tenorChanged = True
+        elif bari.pitch > tenor.pitch:
+            # trade with the tenor (this time we're probably taking the tenor note
+            # as is, and the tenor is taking our note as is.  But moveIntoRange
+            # anyway, to be sure.
+            oldBari = bari
+            oldTenor = tenor
+            bari = MusicEngine.copyNote(oldTenor)
+            tenor = MusicEngine.copyNote(oldBari)
+            MusicEngine.moveIntoRange(bari, bariPartRange)
+            MusicEngine.moveIntoRange(tenor, tenorPartRange)
+            tenorChanged = True
 
         # Specify stem directions explicitly
         bari.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Bari]
-
         bariVoice: m21.stream.Voice = measure[PartName.Bari]
         bariVoice.insert(offset, bari)
+
+        if tenorChanged:
+            tenor.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Tenor]
+            tenorVoice: m21.stream.Voice = measure[PartName.Tenor]
+            tenorVoice.replace(oldTenor, tenor)
 
     @staticmethod
     def orderPitchNamesStartingAbove(
