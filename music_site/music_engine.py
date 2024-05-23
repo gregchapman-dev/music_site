@@ -2361,10 +2361,17 @@ class MusicEngine:
             measureStuff: list[m21.base.Music21Object] = []
 
             # create and append the next tlMeas and bbMeas
-            tlMeas = m21.stream.Measure(number=mMeas.measureNumberWithSuffix())
+            # Note that we do not set number to mMeas.measureNumberWithSuffix, since
+            # measure number parsing doesn't recreate the suffix correctly all the time.
+            # Just set number, and then if necessary, set numberSuffix.
+            tlMeas = m21.stream.Measure(number=mMeas.measureNumber)
+            if mMeas.numberSuffix:
+                tlMeas.numberSuffix = mMeas.numberSuffix
             tlMeas.id = 'Tenor/Lead'  # we look for this later when inserting Voices
             tlStaff.append(tlMeas)
-            bbMeas = m21.stream.Measure(number=mMeas.measureNumberWithSuffix())
+            bbMeas = m21.stream.Measure(number=mMeas.measureNumber)
+            if mMeas.numberSuffix:
+                bbMeas.numberSuffix = mMeas.numberSuffix
             bbMeas.id = 'Bari/Bass'  # we look for this later when inserting Voices
             bbStaff.append(bbMeas)
 
