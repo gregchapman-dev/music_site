@@ -1237,7 +1237,7 @@ class MusicEngine:
     def getNonPillarChordOptions(
         leadPitchName: PitchName,
         origChord: m21.harmony.ChordSymbol
-    ) -> list[m21.harmony.ChordSymbol]:
+    ) -> ChordSymbolOptions:
         allOptions: list[m21.harmony.ChordSymbol] = []
 
         option1: m21.harmony.ChordSymbol | None = None
@@ -1404,7 +1404,7 @@ class MusicEngine:
         if not allOptions:
             raise MusicEngineException('no non-pillar chord options found')
 
-        return allOptions
+        return ChordSymbolOptions(allOptions)
 
     STEM_DIRECTION: dict[PartName, str] = {
         PartName.Tenor: 'up',
@@ -1998,26 +1998,26 @@ class MusicEngine:
             )
 
             if melodyPitchName not in chordPitchNames:
-                options: list[m21.harmony.ChordSymbol] = (
+                csOpt: ChordSymbolWithOptions = (
                     MusicEngine.getNonPillarChordOptions(melodyPitchName, chordSym)
                 )
 
-                chosenIdx: int = 0
-                chosenOption = options[chosenIdx]
-                # We need a place to store options for a subrange of the melodyNote
-                # melodyNote.shopit_options_dict[] = options  # type: ignore
-                # melodyNote.shopit_current_option_index = chosenIdx  # type: ignore
+                # make the csOpt object behave like the 0th ChordSymbol in the list
+                csOpt.selection = 0
 
-                startOffsetInVoice: OffsetQL = (
+                startOffsetInVoice: OffsetQL = opFrac(
                     hr.startOffset - cVoice.getOffsetInHierarchy(chords)
+                )
+                durQL: OffsetQL = opFrac(
+                    hr.endOffset - hr.startOffset
                 )
 
                 MusicEngine.replaceChordSymbolPortion(
                     cVoice,
                     chordSym,
-                    chosenOption,
+                    csOpt,
                     startOffsetInVoice,
-                    opFrac(hr.endOffset - hr.startOffset)
+                    durQL
                 )
 
     @staticmethod
