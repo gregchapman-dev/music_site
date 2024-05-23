@@ -2616,10 +2616,23 @@ class MusicEngine:
                 .getElementsByClass(m21.note.GeneralNote)
                 .getElementsNotOfClass(m21.harmony.ChordSymbol)
             )
-            if len(elements) != 1:
+
+            # count non-grace notes
+            nonGraceCount: int = 0
+            nonGraceIndex: int | None = None
+            el: m21.base.Music21Object
+            for idx, el in enumerate(elements):
+                if el.duration.isGrace:
+                    continue
+                nonGraceIndex = idx
+                nonGraceCount += 1
+
+            if nonGraceCount != 1:
                 raise MusicEngineException('multiple (or zero) lead notes at offset')
 
-            el: m21.base.Music21Object = elements[0]
+            if t.TYPE_CHECKING:
+                assert nonGraceIndex is not None
+            el = elements[nonGraceIndex]
             if isinstance(el, m21.chord.Chord):
                 raise MusicEngineException(
                     'm21.chord.Chord (not ChordSymbol) found in leadsheet melody'
@@ -2641,10 +2654,6 @@ class MusicEngine:
                 continue
 
             if not isinstance(el, m21.note.Note):
-                continue
-
-            # it's a Note
-            if el.duration.isGrace:
                 continue
 
             # it's a non-grace Note
