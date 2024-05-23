@@ -2426,10 +2426,17 @@ class MusicEngine:
             measureStuff: list[m21.base.Music21Object] = []
 
             # create and append the next tlMeas and bbMeas
-            tlMeas = m21.stream.Measure(number=mMeas.measureNumberWithSuffix())
+            # Note that we do not set number to mMeas.measureNumberWithSuffix, since
+            # measure number parsing doesn't recreate the suffix correctly all the time.
+            # Just set number, and then if necessary, set numberSuffix.
+            tlMeas = m21.stream.Measure(number=mMeas.measureNumber)
+            if mMeas.numberSuffix:
+                tlMeas.numberSuffix = mMeas.numberSuffix
             tlMeas.id = 'Tenor/Lead'  # we look for this later when inserting Voices
             tlStaff.append(tlMeas)
-            bbMeas = m21.stream.Measure(number=mMeas.measureNumberWithSuffix())
+            bbMeas = m21.stream.Measure(number=mMeas.measureNumber)
+            if mMeas.numberSuffix:
+                bbMeas.numberSuffix = mMeas.numberSuffix
             bbMeas.id = 'Bari/Bass'  # we look for this later when inserting Voices
             bbStaff.append(bbMeas)
 
@@ -2593,11 +2600,12 @@ class MusicEngine:
     ):
         tlPart: m21.stream.Part = shopped.parts[0]
         bbPart: m21.stream.Part = shopped.parts[1]
-        tlMeasIter = tlPart[m21.stream.Measure]
-        bbMeasIter = bbPart[m21.stream.Measure]
+        tlMeasures: list[m21.stream.Measure] = list(tlPart[m21.stream.Measure])
+        bbMeasures: list[m21.stream.Measure] = list(bbPart[m21.stream.Measure])
 
-        tlMeas: m21.stream.Measure = next(tlMeasIter)
-        bbMeas: m21.stream.Measure = next(bbMeasIter)
+        measIndex: int = 0
+        tlMeas: m21.stream.Measure = tlMeasures[measIndex]
+        bbMeas: m21.stream.Measure = bbMeasures[measIndex]
         currVoices: FourVoices = FourVoices(
             tenor=tlMeas[m21.stream.Voice][0],
             lead=tlMeas[m21.stream.Voice][1],
@@ -2643,8 +2651,9 @@ class MusicEngine:
 
             # update currVoices/prevVoices as appropriate
             if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
-                tlMeas = next(tlMeasIter)
-                bbMeas = next(bbMeasIter)
+                measIndex += 1
+                tlMeas = tlMeasures[measIndex]
+                bbMeas = bbMeasures[measIndex]
                 if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
                     raise MusicEngineException('cannot find next measure to shop')
                 prevVoices = currVoices
@@ -2657,134 +2666,157 @@ class MusicEngine:
 
             leadOffsetInScore: OffsetQL = melodyNote.getOffsetInHierarchy(melody)
             leadVoice: m21.stream.Voice = currVoices[PartName.Lead]
-            offset: OffsetQL = opFrac(
+            leadOffsetInVoice: OffsetQL = opFrac(
                 leadOffsetInScore - leadVoice.getOffsetInHierarchy(shopped)
             )
+            harmonyOffsetInVoice: OffsetQL = opFrac(
+                hr.startOffset - leadVoice.getOffsetInHierarchy(shopped)
+            )
+            harmonyQL: OffsetQL = opFrac(hr.endOffset - hr.startOffset)
 
             elements: list[m21.base.Music21Object] = list(
-                leadVoice.recurse().getElementsByOffsetInHierarchy(offset)
+                leadVoice
+                .recurse()
+                .getElementsByOffsetInHierarchy(leadOffsetInVoice)
+                .getElementsByClass(m21.note.GeneralNote)
+                .getElementsNotOfClass(m21.harmony.ChordSymbol)
             )
-            for el in elements:
-                if isinstance(el, m21.harmony.ChordSymbol):
-                    continue
-                if isinstance(el, m21.chord.Chord):
-                    raise MusicEngineException(
-                        'm21.chord.Chord (not ChordSymbol) found in leadsheet melody'
-                    )
 
-                if isinstance(el, m21.note.Rest):
-                    # a rest in the lead is a rest in the harmony part
-                    # Hide the tenor rest and bari rest (we only want
-                    # to see one rest in each staff).  Also set all rest
-                    # positions to center of staff, because we don't want
-                    # it positioned just for the one voice.
-                    el.stepShift = 0  # I wish setting to 0 did something...
-                    rest: m21.note.Rest = deepcopy(el)
-                    if partName in (PartName.Tenor, PartName.Bari):
-                        rest.style.hideObjectOnPrint = True
-                        rest.stepShift = 0
-                    currVoices[partName].insert(offset, rest)
-                    continue
-
-                if not isinstance(el, m21.note.Note):
-                    continue
-
-                # it's a Note
+            # count non-grace notes
+            nonGraceCount: int = 0
+            nonGraceIndex: int | None = None
+            el: m21.base.Music21Object
+            for idx, el in enumerate(elements):
                 if el.duration.isGrace:
                     continue
+                nonGraceIndex = idx
+                nonGraceCount += 1
 
-                # it's a non-grace Note
-                leadNote: m21.note.Note = el
-                if chordSym is None or isinstance(chordSym, m21.harmony.NoChord):
-                    # Must be a melody pickup before the first chord, or a place
-                    # in the music where there it is specifically notated that
-                    # there is no chord at all.
-                    # Put (visible) rests in the other three parts. Hide Bari
-                    # (but not Tenor this time) and set rest position on the
-                    # visible rests.
-                    noChordRest: m21.note.Rest = m21.note.Rest()
-                    noChordRest.quarterLength = leadNote.quarterLength
-                    if partName == PartName.Bari:
-                        noChordRest.style.hideObjectOnPrint = True
-                    else:
-                        noChordRest.stepShift = 0  # I wish setting to 0 did something...
+            if nonGraceCount != 1:
+                raise MusicEngineException('multiple (or zero) lead notes at offset')
 
-                    currVoices[partName].insert(offset, noChordRest)
-                    continue
-
-                leadPitchName: PitchName = PitchName(leadNote.pitch.name)
-                chord: Chord = Chord(chordSym)
-                chordPitchNames = MusicEngine.getChordVocalParts(
-                    chord, leadPitchName
-                ).values()
-
-                if len(chordPitchNames) < 3:
-                    # not enough notes to figure out a harmonization
-                    space: m21.note.Rest = m21.note.Rest()
-                    space.quarterLength = leadNote.quarterLength
-                    space.style.hideObjectOnPrint = True
-                    currVoices[partName].insert(offset, space)
-                    continue
-
-                if leadPitchName not in chordPitchNames:
-                    # lead is not on a pillar chord note, fill in bass/tenor/bari with
-                    # spaces (invisible rests).
-                    raise MusicEngineException('lead note not in chord; should never happen')
-                    # space = m21.note.Rest()
-                    # space.quarterLength = leadNote.quarterLength
-                    # space.style.hideObjectOnPrint = True
-                    # currVoices[partName].insert(offset, space)
-                    # continue
-
-                # Lead has a pillar chord note.  Fill in the <partName> note
-                # (potentially adjusting other non-lead notes to improve
-                # voice leading).
-                # Params:
-                #   partName: PartName, which part we are harmonizing (might adjust others)
-                #   currVoices: FourVoices, where we insert(and adjust) the note(s))
-                #   offset: OffsetQL, offset in currVoices[x] where we are working
-                #   thisFourNotes: FourNotes (read-only), for ease of looking up and down
-                #   prevFourNotes: FourNotes (read-only), for ease of looking back
-                thisFourNotes: FourNotes = (
-                    MusicEngine.getFourNotesAtOffset(currVoices, offset)
+            if t.TYPE_CHECKING:
+                assert nonGraceIndex is not None
+            el = elements[nonGraceIndex]
+            if isinstance(el, m21.chord.Chord):
+                raise MusicEngineException(
+                    'm21.chord.Chord (not ChordSymbol) found in leadsheet melody'
                 )
-                prevFourNotes: FourNotes = (
-                    MusicEngine.getFourNotesBeforeOffset(currVoices, prevVoices, offset)
-                )
-                if leadNote is not thisFourNotes[PartName.Lead]:
-                    raise MusicEngineException('we are confused about the lead note')
 
-                if partName == PartName.Bass:
-                    MusicEngine.harmonizePillarChordBass(
-                        partRanges,
-                        currVoices,
-                        offset,
-                        chord,
-                        thisFourNotes,
-                        prevFourNotes
-                    )
-                elif partName == PartName.Tenor:
-                    MusicEngine.harmonizePillarChordTenor(
-                        partRanges,
-                        currVoices,
-                        offset,
-                        chord,
-                        thisFourNotes,
-                        prevFourNotes
-                    )
-                elif partName == PartName.Bari:
-                    MusicEngine.harmonizePillarChordBari(
-                        partRanges,
-                        currVoices,
-                        offset,
-                        chord,
-                        thisFourNotes,
-                        prevFourNotes
-                    )
+            if isinstance(el, m21.note.Rest):
+                # a rest in the lead is a rest in the harmony part
+                # Hide the tenor rest and bari rest (we only want
+                # to see one rest in each staff).  Also set all rest
+                # positions to center of staff, because we don't want
+                # it positioned just for the one voice.
+                el.stepShift = 0  # I wish setting to 0 did something...
+                rest: m21.note.Rest = deepcopy(el)
+                rest.quarterLength = harmonyQL
+                if partName in (PartName.Tenor, PartName.Bari):
+                    rest.style.hideObjectOnPrint = True
+                    rest.stepShift = 0
+                currVoices[partName].insert(harmonyOffsetInVoice, rest)
+                continue
+
+            if not isinstance(el, m21.note.Note):
+                continue
+
+            # it's a non-grace Note
+            leadNote: m21.note.Note = el
+            if chordSym is None or isinstance(chordSym, m21.harmony.NoChord):
+                # Must be a melody pickup before the first chord, or a place
+                # in the music where there it is specifically notated that
+                # there is no chord at all.
+                # Put (visible) rests in the other three parts. Hide Bari
+                # (but not Tenor this time) and set rest position on the
+                # visible rests.
+                noChordRest: m21.note.Rest = m21.note.Rest()
+                noChordRest.quarterLength = harmonyQL
+                if partName == PartName.Bari:
+                    noChordRest.style.hideObjectOnPrint = True
                 else:
-                    raise MusicEngineException(
-                        'Should not reach here: partName not in Bass, Tenor, Bari'
-                    )
+                    noChordRest.stepShift = 0  # I wish setting to 0 did something...
+
+                currVoices[partName].insert(harmonyOffsetInVoice, noChordRest)
+                continue
+
+            leadPitchName: PitchName = PitchName(leadNote.pitch.name)
+            chord: Chord = Chord(chordSym)
+            chordPitchNames = MusicEngine.getChordVocalParts(
+                chord, leadPitchName
+            ).values()
+
+            if len(chordPitchNames) < 3:
+                # not enough notes to figure out a harmonization
+                space: m21.note.Rest = m21.note.Rest()
+                space.quarterLength = harmonyQL
+                space.style.hideObjectOnPrint = True
+                currVoices[partName].insert(harmonyOffsetInVoice, space)
+                continue
+
+            if leadPitchName not in chordPitchNames:
+                # lead is not on a pillar chord note, fill in bass/tenor/bari with
+                # spaces (invisible rests).
+                raise MusicEngineException('lead note not in chord; should never happen')
+                # space = m21.note.Rest()
+                # space.quarterLength = harmonyQL
+                # space.style.hideObjectOnPrint = True
+                # currVoices[partName].insert(harmonyOffsetInVoice, space)
+                # continue
+
+            # Lead has a pillar chord note.  Fill in the <partName> note
+            # (potentially adjusting other non-lead notes to improve
+            # voice leading).
+            # Params:
+            #   partName: PartName, which part we are harmonizing (might adjust others)
+            #   currVoices: FourVoices, where we insert(and adjust) the note(s))
+            #   harmonyOffsetInVoice: OffsetQL, offset in currVoices[x] where we are working
+            #   harmonyQL: OffsetQL, duration of harmony note needed
+            #   thisFourNotes: FourNotes (read-only), for ease of looking up and down
+            #   prevFourNotes: FourNotes (read-only), for ease of looking back
+            thisFourNotes: FourNotes = (
+                MusicEngine.getFourNotesAtOffset(currVoices, harmonyOffsetInVoice)
+            )
+            prevFourNotes: FourNotes = (
+                MusicEngine.getFourNotesBeforeOffset(currVoices, prevVoices, harmonyOffsetInVoice)
+            )
+            if leadNote is not thisFourNotes[PartName.Lead]:
+                raise MusicEngineException('we are confused about the lead note')
+
+            if partName == PartName.Bass:
+                MusicEngine.harmonizePillarChordBass(
+                    partRanges,
+                    currVoices,
+                    harmonyOffsetInVoice,
+                    harmonyQL,
+                    chord,
+                    thisFourNotes,
+                    prevFourNotes
+                )
+            elif partName == PartName.Tenor:
+                MusicEngine.harmonizePillarChordTenor(
+                    partRanges,
+                    currVoices,
+                    harmonyOffsetInVoice,
+                    harmonyQL,
+                    chord,
+                    thisFourNotes,
+                    prevFourNotes
+                )
+            elif partName == PartName.Bari:
+                MusicEngine.harmonizePillarChordBari(
+                    partRanges,
+                    currVoices,
+                    harmonyOffsetInVoice,
+                    harmonyQL,
+                    chord,
+                    thisFourNotes,
+                    prevFourNotes
+                )
+            else:
+                raise MusicEngineException(
+                    'Should not reach here: partName not in Bass, Tenor, Bari'
+                )
 
     @staticmethod
     def _addBassPitchToVocalParts(
@@ -3011,6 +3043,7 @@ class MusicEngine:
         partRanges: dict[PartName, VocalRange],
         measure: FourVoices,
         offset: OffsetQL,
+        durQL: OffsetQL,
         pillarChord: Chord,
         thisFourNotes: FourNotes,
         prevFourNotes: FourNotes
@@ -3065,7 +3098,7 @@ class MusicEngine:
 
         if preferredBass and leadPitchName != preferredBass:
             # bass always gets the preferredBass, unless the lead is already on it.
-            bass = MusicEngine.makeNote(preferredBass, copyFrom=lead, below=lead)
+            bass = MusicEngine.makeNote(preferredBass, durQL, copyFrom=lead, below=lead)
             MusicEngine.moveIntoRange(bass, partRange)
         elif roles in (
                 (1, 3, 5),
@@ -3079,34 +3112,34 @@ class MusicEngine:
 
             if leadPitchName == root:
                 # Lead is on root, take doubled root an octave below
-                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                bass = MusicEngine.makeNote(root, durQL, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
                     # root an octave below lead is too low, try the fifth below the lead
-                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
+                    bass = MusicEngine.makeNote(fifth, durQL, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
                         # still too low, just sing the same note (root) as the lead
                         bass = MusicEngine.copyNote(lead)
 
             elif leadPitchName == other:
                 # Lead is on 2, 3, or 4, take root a 9th, 10th or 11th below
-                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
+                bass = MusicEngine.makeNote(root, durQL, copyFrom=lead, below=lead, extraOctaves=1)
                 if partRange.isTooLow(bass.pitch):
                     # Take fifth (below the lead note)
-                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
+                    bass = MusicEngine.makeNote(fifth, durQL, copyFrom=lead, below=lead)
                     if partRange.isTooLow(bass.pitch):
                         # Fine, take the root below the lead
-                        bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                        bass = MusicEngine.makeNote(root, durQL, copyFrom=lead, below=lead)
 
             elif leadPitchName == fifth:
                 # Lead is on fifth, take root below
-                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                bass = MusicEngine.makeNote(root, durQL, copyFrom=lead, below=lead)
                 if partRange.isOutOfRange(bass.pitch):
                     # Ugh. Lead must be really crazy. Force the bass into range,
                     # even if it is above the lead.
                     MusicEngine.moveIntoRange(bass, partRange)
             elif leadPitchName == preferredBass:
                 # lead is on /bass note, take the root
-                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                bass = MusicEngine.makeNote(root, durQL, copyFrom=lead, below=lead)
                 MusicEngine.moveIntoRange(bass, partRange)
             else:
                 # Should never happen, because we wouldn't call this routine if
@@ -3182,15 +3215,17 @@ class MusicEngine:
 
             if root and fifth and leadPitchName == root:
                 # put bass on fifth below lead, or above lead if necessary
-                bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
+                bass = MusicEngine.makeNote(fifth, durQL, copyFrom=lead, below=lead)
                 if partRange.isTooLow(bass.pitch):
-                    bass = MusicEngine.makeNote(fifth, copyFrom=lead, above=lead)
+                    bass = MusicEngine.makeNote(fifth, durQL, copyFrom=lead, above=lead)
 
             elif root and fifth and leadPitchName == fifth:
                 # bass on root
-                bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                bass = MusicEngine.makeNote(root, durQL, copyFrom=lead, below=lead)
                 if partRange.isTooHigh(bass.pitch):
-                    bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead, extraOctaves=1)
+                    bass = MusicEngine.makeNote(
+                        root, durQL, copyFrom=lead, below=lead, extraOctaves=1
+                    )
 
             elif (root and leadPitchName != root) or (fifth and leadPitchName != fifth):
                 while True:
@@ -3199,11 +3234,11 @@ class MusicEngine:
                     fifthBelowLead: m21.note.Note | None = None
                     if root:
                         rootBelowLead = MusicEngine.makeNote(
-                            root, copyFrom=lead, below=lead
+                            root, durQL, copyFrom=lead, below=lead
                         )
                     if fifth:
                         fifthBelowLead = MusicEngine.makeNote(
-                            fifth, copyFrom=lead, below=lead
+                            fifth, durQL, copyFrom=lead, below=lead
                         )
 
                     if rootBelowLead is not None and partRange.isInRange(rootBelowLead.pitch):
@@ -3218,7 +3253,7 @@ class MusicEngine:
                         if t.TYPE_CHECKING:
                             assert root is not None
                         rootBelowLead = MusicEngine.makeNote(
-                            root, copyFrom=lead, below=lead, extraOctaves=1
+                            root, durQL, copyFrom=lead, below=lead, extraOctaves=1
                         )
                         if partRange.isInRange(rootBelowLead.pitch):
                             bass = rootBelowLead
@@ -3229,14 +3264,16 @@ class MusicEngine:
                     if fifth and fifthBelowLead is not None:
                         if partRange.isTooHigh(fifthBelowLead.pitch):
                             fifthBelowLead = MusicEngine.makeNote(
-                                fifth, copyFrom=lead, below=lead, extraOctaves=1
+                                fifth, durQL, copyFrom=lead, below=lead, extraOctaves=1
                             )
                             if partRange.isInRange(fifthBelowLead.pitch):
                                 bass = fifthBelowLead
                                 break
                         else:
                             # must have been too low, try above the lead
-                            fifthAboveLead = MusicEngine.makeNote(fifth, copyFrom=lead, above=lead)
+                            fifthAboveLead = MusicEngine.makeNote(
+                                fifth, durQL, copyFrom=lead, above=lead
+                            )
                             if partRange.isInRange(fifthAboveLead.pitch):
                                 bass = fifthAboveLead
                                 break
@@ -3246,15 +3283,17 @@ class MusicEngine:
                     # range, no matter how far from lead.  The lead note must be
                     # _way_ out of range.
                     if root in availablePitches:
-                        bass = MusicEngine.makeNote(root, copyFrom=lead, below=lead)
+                        bass = MusicEngine.makeNote(root, durQL, copyFrom=lead, below=lead)
                         MusicEngine.moveIntoRange(bass, partRange)
                     elif fifth in availablePitches:
-                        bass = MusicEngine.makeNote(fifth, copyFrom=lead, below=lead)
+                        bass = MusicEngine.makeNote(fifth, durQL, copyFrom=lead, below=lead)
                         MusicEngine.moveIntoRange(bass, partRange)
                     else:
                         if len(availablePitches) < 2:
                             raise MusicEngineException(f'too few available pitches: {chPitch}')
-                        bass = MusicEngine.makeNote(availablePitches[0], copyFrom=lead, below=lead)
+                        bass = MusicEngine.makeNote(
+                            availablePitches[0], durQL, copyFrom=lead, below=lead
+                        )
                         MusicEngine.moveIntoRange(bass, partRange)
 
                     # all done, break out of "loop once"
@@ -3264,12 +3303,12 @@ class MusicEngine:
                 # ignore root/third/fifth/seventh and just use availablePitches
                 if len(availablePitches) < 2:
                     raise MusicEngineException(f'too few available pitches: {chPitch}')
-                bass = MusicEngine.makeNote(availablePitches[0], copyFrom=lead, below=lead)
+                bass = MusicEngine.makeNote(availablePitches[0], durQL, copyFrom=lead, below=lead)
                 MusicEngine.moveIntoRange(bass, partRange)
         else:
             if len(availablePitches) < 2:
                 raise MusicEngineException(f'too few available pitches: {chPitch}')
-            bass = MusicEngine.makeNote(availablePitches[0], copyFrom=lead, below=lead)
+            bass = MusicEngine.makeNote(availablePitches[0], durQL, copyFrom=lead, below=lead)
             MusicEngine.moveIntoRange(bass, partRange)
 
         # Specify stem directions explicitly
@@ -3284,6 +3323,7 @@ class MusicEngine:
         partRanges: dict[PartName, VocalRange],
         measure: FourVoices,
         offset: OffsetQL,
+        durQL: OffsetQL,
         pillarChord: Chord,
         thisFourNotes: FourNotes,
         prevFourNotes: FourNotes
@@ -3333,7 +3373,7 @@ class MusicEngine:
         )
 
         for p in orderedPitchNames:
-            tenor = MusicEngine.makeNote(p, copyFrom=lead, above=lead)
+            tenor = MusicEngine.makeNote(p, durQL, copyFrom=lead, above=lead)
             if partRange.isInRange(tenor.pitch):
                 break
 
@@ -3343,7 +3383,7 @@ class MusicEngine:
         if partRange.isTooLow(tenor.pitch):
             # try again, an extra octave up
             for p in orderedPitchNames:
-                tenor = MusicEngine.makeNote(p, copyFrom=lead, above=lead, extraOctaves=1)
+                tenor = MusicEngine.makeNote(p, durQL, copyFrom=lead, above=lead, extraOctaves=1)
                 if partRange.isInRange(tenor.pitch):
                     break
 
@@ -3352,7 +3392,7 @@ class MusicEngine:
 
         if partRange.isTooHigh(tenor.pitch):
             for p in reversed(orderedPitchNames):
-                tenor = MusicEngine.makeNote(p, copyFrom=lead, below=lead)
+                tenor = MusicEngine.makeNote(p, durQL, copyFrom=lead, below=lead)
                 if partRange.isInRange(tenor.pitch):
                     break
 
@@ -3362,7 +3402,7 @@ class MusicEngine:
         if partRange.isTooHigh(tenor.pitch):
             # try again, an extra octave below
             for p in reversed(orderedPitchNames):
-                tenor = MusicEngine.makeNote(p, copyFrom=lead, below=lead, extraOctaves=1)
+                tenor = MusicEngine.makeNote(p, durQL, copyFrom=lead, below=lead, extraOctaves=1)
                 if partRange.isInRange(tenor.pitch):
                     break
 
@@ -3371,7 +3411,7 @@ class MusicEngine:
 
         if partRange.isOutOfRange(tenor.pitch):
             # last resort: the first note above the lead, put in whatever octave works.
-            tenor = MusicEngine.makeNote(availablePitchNames[0], copyFrom=lead, above=lead)
+            tenor = MusicEngine.makeNote(availablePitchNames[0], durQL, copyFrom=lead, above=lead)
             MusicEngine.moveIntoRange(tenor, partRange)
 
         # Specify stem directions explicitly
@@ -3385,6 +3425,7 @@ class MusicEngine:
         partRanges: dict[PartName, VocalRange],
         measure: FourVoices,
         offset: OffsetQL,
+        durQL: OffsetQL,
         pillarChord: Chord,
         thisFourNotes: FourNotes,
         prevFourNotes: FourNotes
@@ -3422,6 +3463,7 @@ class MusicEngine:
         # obviously, but for now this is it).
         bari: m21.note.Note = MusicEngine.makeNote(
             availablePitchNames[0],
+            durQL,
             copyFrom=lead,
             below=tenor
         )
@@ -3436,8 +3478,12 @@ class MusicEngine:
             # the bari.
             oldBari: m21.note.Note = bari
             oldTenor: m21.note.Note = tenor
-            bari = MusicEngine.makeNote(PitchName(oldTenor.pitch.name), copyFrom=lead, above=bass)
-            tenor = MusicEngine.makeNote(PitchName(oldBari.pitch.name), copyFrom=lead, above=lead)
+            bari = MusicEngine.makeNote(
+                PitchName(oldTenor.pitch.name), durQL, copyFrom=lead, above=bass
+            )
+            tenor = MusicEngine.makeNote(
+                PitchName(oldBari.pitch.name), durQL, copyFrom=lead, above=lead
+            )
             MusicEngine.moveIntoRange(bari, bariPartRange)
             MusicEngine.moveIntoRange(tenor, tenorPartRange)
             tenorChanged = True
@@ -3515,7 +3561,9 @@ class MusicEngine:
         for n in leadNotes:
             if n.duration.isGrace:
                 continue
-            if n.offset == offset:
+            # The offset is the harmony offset; the lead note we're looking for may actually
+            # just overlap this offset, not start at it.
+            if n.offset <= offset < opFrac(n.offset + n.quarterLength):
                 # Sometimes we end up with multiple notes/rests at a single offset.
                 # In that case, take the first note (or first rest, if no notes)
                 if lead is None or (
@@ -3611,6 +3659,9 @@ class MusicEngine:
         # Non-zero offset, don't need prevMeasure at all, just get all the
         # notes/rests in the voice up to (but not including) offset, and
         # return the last one.
+        # Note that this works for any lead notes that overlap offset, since
+        # the previous lead note will be the same as the current lead note,
+        # in that case.
         tenor = None
         lead = None
         bari = None
@@ -3657,6 +3708,7 @@ class MusicEngine:
     @staticmethod
     def makeNote(
         pitchName: PitchName,
+        durQL: OffsetQL,
         copyFrom: m21.note.Note,
         below: m21.note.Note | None = None,
         above: m21.note.Note | None = None,
@@ -3691,6 +3743,7 @@ class MusicEngine:
                 'makeNote must be passed exactly one (not neither) of above/below'
             )
 
+        output.quarterLength = durQL
         return output
 
     @staticmethod
@@ -3703,9 +3756,10 @@ class MusicEngine:
         extraOctaves: int = 0,
         voice: m21.stream.Voice | None = None,
         offset: OffsetQL | None = None,
+        durQL: OffsetQL | None = None
     ) -> m21.note.Note:
-        if voice is None or offset is None:
-            raise MusicEngineException('makeAndInsertNote requires voice and offset')
+        if voice is None or offset is None or durQL is None:
+            raise MusicEngineException('makeAndInsertNote requires voice and offset and durQL')
 
         # remove the note it replaces from voice first
         if replacedNote is not None:
@@ -3716,6 +3770,7 @@ class MusicEngine:
         # make the new note
         newNote: m21.note.Note = MusicEngine.makeNote(
             pitchName,
+            durQL,
             copyFrom=copyFrom,
             above=above,
             below=below,
