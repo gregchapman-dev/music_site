@@ -2270,7 +2270,7 @@ class MusicEngine:
 
 
         shopped: m21.stream.Score = m21.stream.Score()
-        shoppedVoices: list[FourVoices]
+        shoppedVoices: list[FourVoices]  # some operations are easier on list of FourVoices
         shopped, shoppedVoices = MusicEngine.processPillarChordsLead(
             arrType,
             partRanges,
@@ -2284,7 +2284,7 @@ class MusicEngine:
         # (the melody pillar notes), potentially tweaking other already harmonized
         # parts as we go, to get better voice leading.
         for partName in (PartName.Bass, PartName.Tenor, PartName.Bari):
-            MusicEngine.processPillarChordsHarmony(partRanges, partName, shoppedVoices, chords)
+            MusicEngine.processPillarChordsHarmony(partRanges, partName, chords, melody, shopped)
 
         # We can't do this on the fly in processPillarChordsHarmony, because sometimes
         # parts trade notes, so the accidental might never be computed.  e.g. the bari
@@ -2522,23 +2522,84 @@ class MusicEngine:
     def processPillarChordsHarmony(
         partRanges: dict[PartName, VocalRange],
         partName: PartName,
-        shoppedVoices: list[FourVoices],
-        chords: m21.stream.Part
+        chords: m21.stream.Part,
+        melody: m21.stream.Part,
+        shopped: m21.stream.Score
     ):
-        currMeasure: FourVoices
-        for mIdx, (currMeasure, chordMeas) in enumerate(
-            zip(shoppedVoices, chords[m21.stream.Measure])
-        ):
-            # prevMeasure is the previous measure of all four voices (to look
-            # at for voice-leading decisions).
-            prevMeasure: FourVoices | None = None
-            if mIdx > 0:
-                prevMeasure = shoppedVoices[mIdx - 1]
+        tlPart: m21.stream.Part = shopped.parts[0]
+        bbPart: m21.stream.Part = shopped.parts[1]
+        tlMeasIter = tlPart[m21.stream.Measure]
+        bbMeasIter = bbPart[m21.stream.Measure]
 
-            leadVoice: m21.stream.Voice = currMeasure[PartName.Lead]
-            for el in leadVoice:
-                offset: OffsetQL = el.getOffsetInHierarchy(leadVoice)
+        tlMeas: m21.stream.Measure = next(tlMeasIter)
+        bbMeas: m21.stream.Measure = next(bbMeasIter)
+        currVoices: FourVoices = FourVoices(
+            tenor=tlMeas[m21.stream.Voice][0],
+            lead=tlMeas[m21.stream.Voice][1],
+            bari=bbMeas[m21.stream.Voice][0],
+            bass=bbMeas[m21.stream.Voice][1]
+        )
+        prevVoices: FourVoices | None = None
 
+        for hr in HarmonyIterator(chords, melody):
+            chordSym: m21.harmony.ChordSymbol | None = (
+                MusicEngine.getChordSymbolInHarmonyRange(chords, hr)
+            )
+            melodyNote: m21.note.GeneralNote | None = (
+                MusicEngine.getMelodyNoteInHarmonyRange(melody, hr)
+            )
+            if melodyNote is None:
+                raise MusicEngineException('no melodyNote at all (not even a space)')
+
+            cVoice: m21.stream.Stream | None = None
+            if chordSym is not None:
+                cVoice = (
+                    chords.containerInHierarchy(chordSym, setActiveSite=False)
+                )
+                if cVoice is None:
+                    raise MusicEngineException('hr.chord not in hr.chords')
+
+            mVoice: m21.stream.Stream | None = (
+                melody.containerInHierarchy(melodyNote, setActiveSite=False)
+            )
+            if mVoice is None:
+                raise MusicEngineException('hr.gNote not in hr.melody')
+
+            if cVoice is not None:
+                if cVoice.getOffsetInHierarchy(chords) != mVoice.getOffsetInHierarchy(melody):
+                    raise MusicEngineException('mismatched chords v melody voice offsets')
+
+            mContainer: m21.stream.Stream | None = mVoice
+            if not isinstance(mContainer, m21.stream.Measure):
+                mContainer = melody.containerInHierarchy(mVoice, setActiveSite=False)
+            if not isinstance(mContainer, m21.stream.Measure):
+                raise MusicEngineException('mVoice not (in) a Measure')
+            mMeas: m21.stream.Measure = mContainer
+
+            # update currVoices/prevVoices as appropriate
+            if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
+                tlMeas = next(tlMeasIter)
+                bbMeas = next(bbMeasIter)
+                if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
+                    raise MusicEngineException('cannot find next measure to shop')
+                prevVoices = currVoices
+                currVoices = FourVoices(
+                    tenor=tlMeas[m21.stream.Voice][0],
+                    lead=tlMeas[m21.stream.Voice][1],
+                    bari=bbMeas[m21.stream.Voice][0],
+                    bass=bbMeas[m21.stream.Voice][1]
+                )
+
+            leadOffsetInScore: OffsetQL = melodyNote.getOffsetInHierarchy(melody)
+            leadVoice: m21.stream.Voice = currVoices[PartName.Lead]
+            offset: OffsetQL = opFrac(
+                leadOffsetInScore - leadVoice.getOffsetInHierarchy(shopped)
+            )
+
+            elements: list[m21.base.Music21Object] = list(
+                leadVoice.recurse().getElementsByOffsetInHierarchy(offset)
+            )
+            for el in elements:
                 if isinstance(el, m21.harmony.ChordSymbol):
                     continue
                 if isinstance(el, m21.chord.Chord):
@@ -2557,7 +2618,7 @@ class MusicEngine:
                     if partName in (PartName.Tenor, PartName.Bari):
                         rest.style.hideObjectOnPrint = True
                         rest.stepShift = 0
-                    currMeasure[partName].insert(offset, rest)
+                    currVoices[partName].insert(offset, rest)
                     continue
 
                 if not isinstance(el, m21.note.Note):
@@ -2569,11 +2630,7 @@ class MusicEngine:
 
                 # it's a non-grace Note
                 leadNote: m21.note.Note = el
-                chord: Chord | None = (
-                    MusicEngine.findChordAtOffset(chordMeas, offset)
-                )
-
-                if chord is None or isinstance(chord.sym, m21.harmony.NoChord):
+                if chordSym is None or isinstance(chordSym, m21.harmony.NoChord):
                     # Must be a melody pickup before the first chord, or a place
                     # in the music where there it is specifically notated that
                     # there is no chord at all.
@@ -2587,10 +2644,11 @@ class MusicEngine:
                     else:
                         noChordRest.stepShift = 0  # I wish setting to 0 did something...
 
-                    currMeasure[partName].insert(offset, noChordRest)
+                    currVoices[partName].insert(offset, noChordRest)
                     continue
 
                 leadPitchName: PitchName = PitchName(leadNote.pitch.name)
+                chord: Chord = Chord(chordSym)
                 chordPitchNames = MusicEngine.getChordVocalParts(
                     chord, leadPitchName
                 ).values()
@@ -2600,7 +2658,7 @@ class MusicEngine:
                     space: m21.note.Rest = m21.note.Rest()
                     space.quarterLength = leadNote.quarterLength
                     space.style.hideObjectOnPrint = True
-                    currMeasure[partName].insert(offset, space)
+                    currVoices[partName].insert(offset, space)
                     continue
 
                 if leadPitchName not in chordPitchNames:
@@ -2610,7 +2668,7 @@ class MusicEngine:
                     # space = m21.note.Rest()
                     # space.quarterLength = leadNote.quarterLength
                     # space.style.hideObjectOnPrint = True
-                    # currMeasure[partName].insert(offset, space)
+                    # currVoices[partName].insert(offset, space)
                     # continue
 
                 # Lead has a pillar chord note.  Fill in the <partName> note
@@ -2618,15 +2676,15 @@ class MusicEngine:
                 # voice leading).
                 # Params:
                 #   partName: PartName, which part we are harmonizing (might adjust others)
-                #   currMeasure: FourVoices, where we insert(and adjust) the note(s))
-                #   offset: OffsetQL, offset in currMeasure[x] where we are working
+                #   currVoices: FourVoices, where we insert(and adjust) the note(s))
+                #   offset: OffsetQL, offset in currVoices[x] where we are working
                 #   thisFourNotes: FourNotes (read-only), for ease of looking up and down
                 #   prevFourNotes: FourNotes (read-only), for ease of looking back
                 thisFourNotes: FourNotes = (
-                    MusicEngine.getFourNotesAtOffset(currMeasure, offset)
+                    MusicEngine.getFourNotesAtOffset(currVoices, offset)
                 )
                 prevFourNotes: FourNotes = (
-                    MusicEngine.getFourNotesBeforeOffset(currMeasure, prevMeasure, offset)
+                    MusicEngine.getFourNotesBeforeOffset(currVoices, prevVoices, offset)
                 )
                 if leadNote is not thisFourNotes[PartName.Lead]:
                     raise MusicEngineException('we are confused about the lead note')
@@ -2634,7 +2692,7 @@ class MusicEngine:
                 if partName == PartName.Bass:
                     MusicEngine.harmonizePillarChordBass(
                         partRanges,
-                        currMeasure,
+                        currVoices,
                         offset,
                         chord,
                         thisFourNotes,
@@ -2643,7 +2701,7 @@ class MusicEngine:
                 elif partName == PartName.Tenor:
                     MusicEngine.harmonizePillarChordTenor(
                         partRanges,
-                        currMeasure,
+                        currVoices,
                         offset,
                         chord,
                         thisFourNotes,
@@ -2652,7 +2710,7 @@ class MusicEngine:
                 elif partName == PartName.Bari:
                     MusicEngine.harmonizePillarChordBari(
                         partRanges,
-                        currMeasure,
+                        currVoices,
                         offset,
                         chord,
                         thisFourNotes,
