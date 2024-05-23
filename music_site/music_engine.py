@@ -173,6 +173,71 @@ class Chord(Sequence):
 
         return self.roleToPitchNames.get(idx, None)
 
+class ChordSymbolOptions(m21.harmony.ChordSymbol):
+    def __init__(self, chordSymbols: list[m21.harmony.ChordSymbol]):
+        if not chordSymbols:
+            raise MusicEngineException('ChordSymbolOptions must have at least one option')
+
+        self.chordSymbols: list[m21.harmony.ChordSymbol] = chordSymbols
+        self.numChordSymbols: int = len(self.chordSymbols)
+        self._selection: int = 0
+
+    @property
+    def selection(self):
+        return self._selection
+
+    @selection.setter
+    def selection(self, newSelection: int):
+        if 0 <= newSelection < self.numChordSymbols:
+            self._selection = newSelection
+            return
+        raise IndexError
+
+    @property
+    def cs(self) -> m21.harmony.ChordSymbol:
+        return self.chordSymbols[self._selection]
+
+    # Pass-thru APIs that just call the selected ChordSymbol
+
+    def _adjustOctaves(self, pitches):
+        return self.cs._adjustPitches(pitches)
+
+    def _adjustPitchesForChordStepModifications(
+        self, pitches: t.Iterable[m21.pitch.Pitch]
+    ) -> list[m21.pitch.Pitch]:
+        return self.cs._adjustPitchesForChordStepModifications(pitches)
+
+    def _parseAddAlterSubtract(self, remaining: str, modType: str) -> str:
+        return self.cs._parseAddAlterSubtract(remaining, modType)
+
+    def _getKindFromShortHand(self, sH):
+        return self.cs._getKindFromShortHand(sH)
+
+    def _hasPitchAboveC4(self, pitches):
+        return self.cs._hasPitchAboveC4(pitches)
+
+    def _hasPitchBelowA1(self, pitches):
+        return self.cs._hasPitchBelowA1(pitches)
+
+    def _notationString(self):
+        return self.cs._notationString()
+
+    def _parseFigure(self) -> None:
+        return self.cs._parseFigure()
+
+    def _updatePitches(self):
+        return self.cs._updatePitches()
+
+    def findFigure(self):
+        return self.cs.findFigure()
+
+    def inversionIsValid(self, inversion):
+        return self.cs.inversionIsValid(inversion)
+
+    def transpose(self, value, *, inPlace=False):
+        return self.cs.transpose(value, inPlace=inPlace)
+
+
 class FourNotes(Sequence):
     # intended to be read-only snapshot of a (possibly in-progress) chord
     def __init__(
