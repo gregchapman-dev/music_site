@@ -1532,6 +1532,12 @@ class MusicEngine:
         for i, cs in enumerate(chordSyms):
             fixedOffset: OffsetQL
             csOffset: OffsetQL = cs.getOffsetInHierarchy(chords)
+            container: m21.stream.Stream | None = (
+                chords.containerInHierarchy(cs, setActiveSite=False)
+            )
+            if container is None:
+                raise MusicEngineException('cs not in chords')
+
             # where nearby is within four quarter notes either side of csOffset.
             nearbyNoteList: list[m21.note.Note] = list(
                 melody.recurse()
@@ -1562,11 +1568,6 @@ class MusicEngine:
             if nearestRecentNote is None:
                 # chord without note; we just have to make sure offset in container is
                 # expressible and not complex.  We don't have to worry about tuplets.
-                container: m21.stream.Stream | None = (
-                    chords.containerInHierarchy(cs, setActiveSite=False)
-                )
-                if container is None:
-                    raise MusicEngineException('cs not in chords')
                 offset: OffsetQL = cs.getOffsetInHierarchy(container)
                 offsetDur = m21.duration.Duration(quarterLength=offset)
                 if offsetDur.type not in ('complex', 'inexpressible'):
@@ -1584,15 +1585,8 @@ class MusicEngine:
                 # chord starts at a note start, we're good
                 continue
 
-            container = chords.containerInHierarchy(cs, setActiveSite=False)
-            if container is None:
-                raise MusicEngineException('cs not in chords')
             offset = cs.getOffsetInHierarchy(container)
-            offsetDur = m21.duration.Duration(quarterLength=offset)
             nearestNoteOffsetDur = m21.duration.Duration(quarterLength=nearestNoteOffset)
-            if offsetDur.type not in ('complex', 'inexpressible'):
-                # good to go, continue to next chord symbol
-                continue
 
             # first thing (no need to worry about tuplets), see if the start or end
             # of the nearestRecentNote is very close; if so, just use that.
