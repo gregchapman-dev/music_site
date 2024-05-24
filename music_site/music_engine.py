@@ -1569,13 +1569,11 @@ class MusicEngine:
                 # chord without note; we just have to make sure offset in container is
                 # expressible and not complex.  We don't have to worry about tuplets.
                 offset: OffsetQL = cs.getOffsetInHierarchy(container)
-                offsetDur = m21.duration.Duration(quarterLength=offset)
-                if offsetDur.type not in ('complex', 'inexpressible'):
-                    # good to go, continue to next chord symbol
-                    continue
-
                 # round to the nearest eighth-note offset
                 fixedOffset = opFrac(int((offset * 2.) + 0.5) / 2.)
+                if fixedOffset == offset:
+                    continue
+
                 container.remove(cs)
                 cs.quarterLength = 0
                 container.insert(fixedOffset, cs)
@@ -1610,13 +1608,16 @@ class MusicEngine:
             nearestNoteLocalOffset: OffsetQL = opFrac(
                 nearestNoteOffset - container.getOffsetInHierarchy(chords)
             )
-            if nearestNoteLocalOffset == 0. and abs(startDiff) < 1.0:  # type: ignore
+            if nearestNoteLocalOffset == 0. and offset < 1.0:  # type: ignore
                 # less than a quarter note after start of measure?  Go ahead
                 # and start the chord at start of measure (see "Could It Be Magic",
                 # where the Cma7 in measures 11, 17, 19, is positioned about 0.4
                 # quarter notes (just less than an eighth note) after the note at
                 # start of the measure, but clearly needs to start with that note).
-                fixedOffset = opFrac(offset + startDiff)
+                fixedOffset = 0.
+                if fixedOffset == offset:
+                    continue
+
                 container.remove(cs)
                 cs.quarterLength = 0
                 container.insert(fixedOffset, cs)
@@ -1628,6 +1629,9 @@ class MusicEngine:
 
             # round to the nearest eighth-note offset
             fixedOffset = opFrac(int((offset * 2.) + 0.5) / 2.)
+            if fixedOffset == offset:
+                continue
+
             container.remove(cs)
             cs.quarterLength = 0
             container.insert(fixedOffset, cs)
