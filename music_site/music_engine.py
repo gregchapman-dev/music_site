@@ -1524,6 +1524,121 @@ class MusicEngine:
                             nextMeas.insert(0, cs)
 
     @staticmethod
+    def fixupChordSymbolOffsets(melody: m21.stream.Part, chords: m21.stream.Part):
+        chordSyms: list[m21.harmony.ChordSymbol] = list(
+            chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
+        )
+
+        for i, cs in enumerate(chordSyms):
+            fixedOffset: OffsetQL
+            csOffset: OffsetQL = cs.getOffsetInHierarchy(chords)
+            # where nearby is within four quarter notes either side of csOffset.
+            nearbyNoteList: list[m21.note.Note] = list(
+                melody.recurse()
+                .getElementsByOffsetInHierarchy(
+                    opFrac(csOffset - 4.0),
+                    opFrac(csOffset + 4.0),
+                    mustFinishInSpan=False,
+                    mustBeginInSpan=False,
+                    includeElementsThatEndAtStart=False)
+                .getElementsByClass(m21.note.GeneralNote)
+                .getElementsNotOfClass(m21.harmony.ChordSymbol)
+            )
+            nearestRecentNote: m21.note.GeneralNote | None = None
+            nearestNoteOffset: OffsetQL | None = None
+            for n in nearbyNoteList:
+                nOffset: OffsetQL = n.getOffsetInHierarchy(melody)
+                if nOffset > csOffset:
+                    continue
+                if nearestNoteOffset is None:
+                    nearestNoteOffset = nOffset
+                    nearestRecentNote = n
+                    continue
+                if nOffset > nearestNoteOffset:
+                    nearestNoteOffset = nOffset
+                    nearestRecentNote = n
+                    continue
+
+            if nearestRecentNote is None:
+                # chord without note; we just have to make sure offset in container is
+                # expressible and not complex.  We don't have to worry about tuplets.
+                container: m21.stream.Stream | None = (
+                    chords.containerInHierarchy(cs, setActiveSite=False)
+                )
+                if container is None:
+                    raise MusicEngineException('cs not in chords')
+                offset: OffsetQL = cs.getOffsetInHierarchy(container)
+                offsetDur = m21.duration.Duration(quarterLength=offset)
+                if offsetDur.type not in ('complex', 'inexpressible'):
+                    # good to go, continue to next chord symbol
+                    continue
+
+                # round to the nearest eighth-note offset
+                fixedOffset = opFrac(int((offset * 2.) + 0.5) / 2.)
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
+                continue
+
+            if nearestNoteOffset == csOffset:
+                # chord starts at a note start, we're good
+                continue
+
+            container = chords.containerInHierarchy(cs, setActiveSite=False)
+            if container is None:
+                raise MusicEngineException('cs not in chords')
+            offset = cs.getOffsetInHierarchy(container)
+            offsetDur = m21.duration.Duration(quarterLength=offset)
+            nearestNoteOffsetDur = m21.duration.Duration(quarterLength=nearestNoteOffset)
+            if offsetDur.type not in ('complex', 'inexpressible'):
+                # good to go, continue to next chord symbol
+                continue
+
+            # first thing (no need to worry about tuplets), see if the start or end
+            # of the nearestRecentNote is very close; if so, just use that.
+            if t.TYPE_CHECKING:
+                assert nearestNoteOffset is not None
+                assert nearestRecentNote is not None
+            startDiff: OffsetQL = opFrac(nearestNoteOffset - csOffset)
+            noteEndOffset: OffsetQL = opFrac(nearestNoteOffset + nearestRecentNote.quarterLength)
+            endDiff: OffsetQL = opFrac(noteEndOffset - csOffset)
+            nearestDiff: OffsetQL = startDiff
+            if abs(endDiff) < abs(nearestDiff):  # type: ignore
+                nearestDiff = endDiff
+            if abs(nearestDiff) < 0.125:  # type: ignore
+                # less than a 32nd note away
+                fixedOffset = opFrac(offset + nearestDiff)
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
+                continue
+
+            nearestNoteLocalOffset: OffsetQL = opFrac(
+                nearestNoteOffset - container.getOffsetInHierarchy(chords)
+            )
+            if nearestNoteLocalOffset == 0. and abs(startDiff) < 1.0:  # type: ignore
+                # less than a quarter note after start of measure?  Go ahead
+                # and start the chord at start of measure (see "Could It Be Magic",
+                # where the Cma7 in measures 11, 17, 19, is positioned about 0.4
+                # quarter notes (just less than an eighth note) after the note at
+                # start of the measure, but clearly needs to start with that note).
+                fixedOffset = opFrac(offset + startDiff)
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
+                continue
+
+            if nearestNoteOffsetDur.tuplets:
+                print('need to fix cs offset with nearby tuplet-y note')
+                continue
+
+            # round to the nearest eighth-note offset
+            fixedOffset = opFrac(int((offset * 2.) + 0.5) / 2.)
+            container.remove(cs)
+            cs.quarterLength = 0
+            container.insert(fixedOffset, cs)
+
+    @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
         # this is a copy of m21.harmony.realizeChordSymbolDurations, that instead
         # of extending a chordsym duration beyond the end-of-measure, will extend
@@ -2167,14 +2282,19 @@ class MusicEngine:
         MusicEngine.fixChordSymbolsAtEndOfMeasure(chords)
 
         # more fixups to the leadsheet score
-        M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
+        M21Utilities.fixupBadChordKinds(chords, inPlace=True)
+
+        # some chord symbols are positioned at very strange offsets, and we need to
+        # round them off to reasonable offsets (we use melody to determine whether
+        # there are tuplets in play, etc).
+        MusicEngine.fixupChordSymbolOffsets(melody, chords)
 
         # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
         # duration == 0 or 1, which doesn't help us find the ChordSymbol that has a
         # time range that contains a particular offset.  We have our own copy of this,
         # with an added "bugfix" that splits chordsyms across barlines, so the new
         # chordsym duration doesn't push the barline out.
-        MusicEngine.realizeChordSymbolDurations(leadSheet)
+        MusicEngine.realizeChordSymbolDurations(chords)
 
         # if there are simultaneous chords (same offset) we should pick one
         # and remove the others.  Pick one that has the melody note in it,
@@ -2585,11 +2705,11 @@ class MusicEngine:
             mMeas: m21.stream.Measure = mContainer
 
             # update currVoices/prevVoices as appropriate
-            if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
+            if tlMeas.getOffsetInHierarchy(shopped) != mMeas.getOffsetInHierarchy(melody):
                 measIndex += 1
                 tlMeas = tlMeasures[measIndex]
                 bbMeas = bbMeasures[measIndex]
-                if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
+                if tlMeas.getOffsetInHierarchy(shopped) != mMeas.getOffsetInHierarchy(melody):
                     raise MusicEngineException('cannot find next measure to shop')
                 prevVoices = currVoices
                 currVoices = FourVoices(
