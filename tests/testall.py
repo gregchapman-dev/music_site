@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import argparse
 import sys
+import datetime
 import typing as t
 import music21 as m21
 from music21.base import VERSION_STR
@@ -206,6 +207,9 @@ with open(listPath, encoding='utf-8') as listf:
 with open(goodPath, 'w', encoding='utf-8') as goodf:
     with open(badPath, 'w', encoding='utf-8') as badf:
         with open(resultsPath, 'w', encoding='utf-8') as resultsf:
+            startTime = datetime.datetime.now()
+            print(f'start time: {startTime}')
+            print(f'start time: {startTime}', file=resultsf)
             for i, file in enumerate(fileList):
                 if not file or file[0] == '#':
                     # blank line, or commented out
@@ -222,6 +226,13 @@ with open(goodPath, 'w', encoding='utf-8') as goodf:
                     resultsf.flush()
                     print(file, file=badf)
                     badf.flush()
+            endTime = datetime.datetime.now()
+            elapsedTime = endTime - startTime
+            print(f'end time: {endTime}')
+            print(f'elapsed time: {elapsedTime}')
+            print(f'end time: {endTime}', file=resultsf)
+            print(f'elapsed time: {elapsedTime}', file=resultsf)
+
             resultsf.flush()
         badf.flush()
     goodf.flush()
