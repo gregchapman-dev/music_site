@@ -2430,7 +2430,7 @@ class MusicEngine:
 
         # If there is a tie in the lead voice, and the notes in a harmony part are also
         # the same as each other, put a tie there, too.
-        MusicEngine.makeTies(shoppedVoices)
+        # MusicEngine.makeTies(shoppedVoices)
 
         return shopped
 
