@@ -2170,7 +2170,7 @@ class MusicEngine:
                 )
 
     @staticmethod
-    def makeTies(shoppedVoices: list[FourVoices]):
+    def fixupTies(shoppedVoices: list[FourVoices]):
         # turn list of FourVoices into four really long lists of notes
         tenorNoteList: list[m21.note.GeneralNote] = []
         leadNoteList: list[m21.note.GeneralNote] = []
@@ -2241,6 +2241,23 @@ class MusicEngine:
                     continue
                 nextHarmNote.tie = deepcopy(nextLeadNote.tie)
                 nextHarmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
+
+    @staticmethod
+    def splitComplexNotesAndRests(shopped: m21.stream.Score):
+        for p in shopped.parts:
+            for m in p[m21.stream.Measure]:
+                for v in m.voices:
+                    for el in v:
+                        if not isinstance(el, (m21.note.Note, m21.note.Rest)):
+                            continue
+                        splits: list[m21.note.Note | m21.note.Rest] = el.splitAtDurations()
+                        if len(splits) <= 1:
+                            continue
+                        currOffset: OffsetQL = el.getOffsetInHierarchy(v)
+                        v.remove(el)
+                        for split in splits:
+                            v.insert(currOffset, split)
+                            currOffset = opFrac(currOffset + split.quarterLength)
 
     @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
@@ -2428,9 +2445,12 @@ class MusicEngine:
         for part in shopped.parts:
             m21.stream.makeNotation.makeBeams(part, inPlace=True, setStemDirections=False)
 
+        # fix up complex note and rest durations in shopped score
+        MusicEngine.splitComplexNotesAndRests(shopped)
+
         # If there is a tie in the lead voice, and the notes in a harmony part are also
         # the same as each other, put a tie there, too.
-        # MusicEngine.makeTies(shoppedVoices)
+        # MusicEngine.fixupTies(shoppedVoices)
 
         return shopped
 
