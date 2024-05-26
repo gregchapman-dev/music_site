@@ -2250,6 +2250,8 @@ class MusicEngine:
                     for el in v:
                         if not isinstance(el, (m21.note.Note, m21.note.Rest)):
                             continue
+                        if len(el.duration.components) == 1:
+                            continue
                         splits: list[m21.note.Note | m21.note.Rest] = el.splitAtDurations()
                         if len(splits) <= 1:
                             continue
