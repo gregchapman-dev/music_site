@@ -1019,25 +1019,52 @@ class MusicEngine:
             .getElementsByClass(m21.key.KeySignature)
         )
 
-        keySigAndTransposeIntervalAtOffset: dict[
-            OffsetQL,
-            tuple[m21.key.KeySignature, m21.interval.Interval]
-        ] = {}
-        for keySig in keySigs:
-            offsetInScore: OffsetQL = keySig.getOffsetInHierarchy(score)
-            if offsetInScore not in keySigAndTransposeIntervalAtOffset:
-                interval: m21.interval.Interval = MusicEngine.getBestTranspositionForKeySig(
-                    keySig, semitonesUp
-                )
-                keySigAndTransposeIntervalAtOffset[offsetInScore] = keySig, interval
+        keySigAndTransposeIntervalAtOffsetList: list[
+            dict[
+                OffsetQL,
+                tuple[m21.key.KeySignature, m21.interval.Interval]
+            ]
+        ] = []
 
-        if opFrac(0) not in keySigAndTransposeIntervalAtOffset:
-            startKey: m21.key.KeySignature = m21.key.KeySignature(0)
-            interval = MusicEngine.getBestTranspositionForKeySig(startKey, semitonesUp)
-            keySigAndTransposeIntervalAtOffset[opFrac(0)] = startKey, interval
+        # we try semitonesUp, as well as down an extra half and up an extra half,
+        # in case they get us more readable key signatures.
+        for semis in (semitonesUp, semitonesUp - 1, semitonesUp + 1):
+            keySigAndTransposeIntervalAtOffset: dict[
+                OffsetQL,
+                tuple[m21.key.KeySignature, m21.interval.Interval]
+            ] = {}
+            for keySig in keySigs:
+                offsetInScore: OffsetQL = keySig.getOffsetInHierarchy(score)
+                if offsetInScore not in keySigAndTransposeIntervalAtOffset:
+                    interval: m21.interval.Interval = MusicEngine.getBestTranspositionForKeySig(
+                        keySig, semis
+                    )
+                    keySigAndTransposeIntervalAtOffset[offsetInScore] = keySig, interval
 
-        # turn it into a sorted (by offset) list of [offset, keysig, interval] tuples
+            if opFrac(0) not in keySigAndTransposeIntervalAtOffset:
+                startKey: m21.key.KeySignature = m21.key.KeySignature(0)
+                interval = MusicEngine.getBestTranspositionForKeySig(startKey, semis)
+                keySigAndTransposeIntervalAtOffset[opFrac(0)] = startKey, interval
 
+            keySigAndTransposeIntervalAtOffsetList.append(keySigAndTransposeIntervalAtOffset)
+
+        # Figure out which of the three transpositions is best (lowest total number of
+        # sharps/flats the in resulting keysigs)
+        lowestAccidCount: int = int(MAX_OFFSETQL)
+        bestIdx: int = -1
+        for i, keySigAndTransposeIntervalAtOffset in enumerate(
+                keySigAndTransposeIntervalAtOffsetList):
+            accids: int = 0
+            for _offset, (keySig, interval) in keySigAndTransposeIntervalAtOffset.items():
+                newKeySig: m21.key.KeySignature = keySig.transpose(interval, inPlace=False)
+                accids += abs(newKeySig.sharps)
+            if accids < lowestAccidCount:
+                lowestAccidCount = accids
+                bestIdx = i
+
+        # turn best keySigAndTransposeIntervalAtOffset into a sorted
+        # (by offset) list of [offset, keysig, interval] tuples
+        keySigAndTransposeIntervalAtOffset = keySigAndTransposeIntervalAtOffsetList[bestIdx]
         output: list[tuple[OffsetQL, m21.key.KeySignature, m21.interval.Interval]] = []
         for offset, (keySig, interval) in keySigAndTransposeIntervalAtOffset.items():
             output.append((offset, keySig, interval))
@@ -2250,9 +2277,11 @@ class MusicEngine:
                     for el in v:
                         if not isinstance(el, (m21.note.Note, m21.note.Rest)):
                             continue
+                        if el.duration.isGrace:
+                            continue
                         if len(el.duration.components) == 1:
                             continue
-                        splits: list[m21.note.Note | m21.note.Rest] = el.splitAtDurations()
+                        splits: m21.base._SplitTuple = el.splitAtDurations()
                         if len(splits) <= 1:
                             continue
                         currOffset: OffsetQL = el.getOffsetInHierarchy(v)
