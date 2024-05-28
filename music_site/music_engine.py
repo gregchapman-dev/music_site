@@ -3223,6 +3223,7 @@ class MusicEngine:
                     if partRange.isTooLow(bass.pitch):
                         # still too low, just sing the same note (root) as the lead
                         bass = MusicEngine.copyNote(lead)
+                        bass.quarterLength = durQL
 
             elif leadPitchName == other:
                 # Lead is on 2, 3, or 4, take root a 9th, 10th or 11th below
