@@ -1611,7 +1611,6 @@ class MusicEngine:
                 continue
 
             offset = cs.getOffsetInHierarchy(container)
-            nearestNoteOffsetDur = m21.duration.Duration(quarterLength=nearestNoteOffset)
 
             # first thing (no need to worry about tuplets), see if the start or end
             # of the nearestRecentNote is very close; if so, just use that.
@@ -1650,8 +1649,26 @@ class MusicEngine:
                 container.insert(fixedOffset, cs)
                 continue
 
-            if nearestNoteOffsetDur.tuplets:
-                print('need to fix cs offset with nearby tuplet-y note')
+            nearestNoteLocalOffsetDur = (
+                m21.duration.Duration(quarterLength=nearestNoteLocalOffset)
+            )
+            if nearestNoteLocalOffsetDur.tuplets:
+                # round to the nearest tuplet-y eighth note offset
+                tupletMultiplier: OffsetQL = nearestNoteLocalOffsetDur.tuplets[0].tupletMultiplier()
+                tupletyEighthNotesPerQuarterNote: OffsetQL = opFrac(2.0 / tupletMultiplier)
+                fixedOffset = opFrac(
+                    int(
+                        (offset * tupletyEighthNotesPerQuarterNote) + 0.5
+                    )
+                    / tupletyEighthNotesPerQuarterNote
+                )
+
+                if fixedOffset == offset:
+                    continue
+
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
                 continue
 
             # round to the nearest eighth-note offset
