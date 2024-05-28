@@ -1829,7 +1829,7 @@ class MusicEngine:
         hr: HarmonyRange,
     ) -> m21.harmony.ChordSymbol | None:
         # if hr._chord is still in the melody (hasn't been replaced by several chords)
-        if hr._chord.activeSite is not None:
+        if hr._chord is not None and hr._chord.activeSite is not None:
             return hr._chord
 
         csList: list[m21.harmony.ChordSymbol] = (
@@ -1875,7 +1875,7 @@ class MusicEngine:
         hr: HarmonyRange,
     ) -> m21.note.GeneralNote | None:
         # if hr._gNote is still in the melody (hasn't been replaced by several notes)
-        if hr._gNote.activeSite is not None:
+        if hr._gNote is not None and hr._gNote.activeSite is not None:
             return hr._gNote
 
         includeEndBoundary: bool = False
@@ -2766,10 +2766,6 @@ class MusicEngine:
             )
             if mVoice is None:
                 raise MusicEngineException('hr.gNote not in hr.melody')
-
-            if cVoice is not None:
-                if cVoice.getOffsetInHierarchy(chords) != mVoice.getOffsetInHierarchy(melody):
-                    raise MusicEngineException('mismatched chords v melody voice offsets')
 
             mContainer: m21.stream.Stream | None = mVoice
             if not isinstance(mContainer, m21.stream.Measure):
