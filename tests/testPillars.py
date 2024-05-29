@@ -58,6 +58,7 @@ def runTheTest(inputPath: Path) -> bool:
     upperGaps: int = MusicEngine.countHarmonyGaps(upperShop)
     print(f'lowerGaps = {lowerGaps}')
     print(f'upperGaps = {upperGaps}')
+    # return True
 
     # show scores via MusicXML (without any makeNotation fixups)
     print('displaying both shopped scores (via MusicXML/Musescore)')
