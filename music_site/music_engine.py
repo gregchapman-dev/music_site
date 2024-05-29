@@ -28,7 +28,8 @@ class MusicEngineException(Exception):
     pass
 
 
-MAX_OFFSETQL: OffsetQL = opFrac(9223372036854775807)
+MAX_INT: int = 9223372036854775807
+MAX_OFFSETQL: OffsetQL = opFrac(MAX_INT)
 
 
 class PitchName:
@@ -1050,16 +1051,16 @@ class MusicEngine:
 
         # Figure out which of the three transpositions is best (lowest total number of
         # sharps/flats the in resulting keysigs)
-        lowestAccidCount: int = int(MAX_OFFSETQL)
+        lowestAccidCount: int = MAX_INT
         bestIdx: int = -1
         for i, keySigAndTransposeIntervalAtOffset in enumerate(
                 keySigAndTransposeIntervalAtOffsetList):
-            accids: int = 0
+            accidCount: int = 0
             for _offset, (keySig, interval) in keySigAndTransposeIntervalAtOffset.items():
                 newKeySig: m21.key.KeySignature = keySig.transpose(interval, inPlace=False)
-                accids += abs(newKeySig.sharps)
-            if accids < lowestAccidCount:
-                lowestAccidCount = accids
+                accidCount += abs(newKeySig.sharps)
+            if accidCount < lowestAccidCount:
+                lowestAccidCount = accidCount
                 bestIdx = i
 
         # turn best keySigAndTransposeIntervalAtOffset into a sorted
