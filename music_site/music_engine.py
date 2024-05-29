@@ -1195,6 +1195,45 @@ class MusicEngine:
                 cs.chordStepModifications = []
                 cs.figure = None  # next get will update it
 
+    CHORD_DEGREE_TO_ROOT_ALTER: dict[str, int] = {
+        '1': 0,
+        '2': 2,
+        '-3': 3,
+        '3': 4,
+        '4': 5,
+        '#4': 6,
+        '-5': 6,
+        '5': 7,
+        '6': 9,
+        '--7': 9,
+        '-7': 10,
+        '7': 11,
+        '9': 14
+    }
+
+    @staticmethod
+    def pitchCanBeDegreeOfChord(
+        pitch: PitchName,
+        degrees: str | t.Iterable[str],
+        chord: m21.harmony.ChordSymbol,
+        chordAlter: int = 0
+    ) -> bool:
+        if isinstance(degrees, str):
+            degrees = [degrees]
+
+        pitchPc: int = pitch.pitch.pitchClass
+        root: m21.pitch.Pitch = chord.root()
+        if chordAlter:
+            root = root.transpose(chordAlter, inPlace=False)
+
+        for degree in degrees:
+            rootAlter: int = MusicEngine.CHORD_DEGREE_TO_ROOT_ALTER[degree]
+            alteredRootPc: int = (root.pitchClass + rootAlter) % 12
+            if pitchPc == alteredRootPc:
+                return True
+
+        return False
+
     @staticmethod
     def getNonPillarChordOptions(
         leadPitchName: PitchName,
@@ -1215,28 +1254,29 @@ class MusicEngine:
         # 1. Extended chord: if lead is on 6, -7, or 9, just add that to the existing chord
 
         # try adding 6th (or 13th)
-        if origChord.chordKind == 'major':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-sixth')
-        elif origChord.chordKind == 'minor':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-sixth')
-        elif origChord.chordKind in (
-                'major-seventh', 'dominant-seventh', 'minor-seventh', 'minor-major-seventh',
-                'dominant-ninth', 'minor-ninth', 'minor-major-ninth'):
-            option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 13)
-        elif origChord.chordKind == 'major-ninth':
-            option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 6)
-            if option1 is not None:
-                option1.chordKindStr = 'maj69'
-        elif origChord.chordKind == 'major-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-13th')
-        elif origChord.chordKind == 'dominant-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-13th')
-        elif origChord.chordKind == 'minor-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-13th')
-        elif origChord.chordKind == 'minor-major-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-major-13th')
+        if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '6', origChord):
+            if origChord.chordKind == 'major':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-sixth')
+            elif origChord.chordKind == 'minor':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-sixth')
+            elif origChord.chordKind in (
+                    'major-seventh', 'dominant-seventh', 'minor-seventh', 'minor-major-seventh',
+                    'dominant-ninth', 'minor-ninth', 'minor-major-ninth'):
+                option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 13)
+            elif origChord.chordKind == 'major-ninth':
+                option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 6)
+                if option1 is not None:
+                    option1.chordKindStr = 'maj69'
+            elif origChord.chordKind == 'major-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-13th')
+            elif origChord.chordKind == 'dominant-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-13th')
+            elif origChord.chordKind == 'minor-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-13th')
+            elif origChord.chordKind == 'minor-major-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-major-13th')
 
-        if option1 is None:
+        if option1 is None and MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '-7', origChord):
             # add dominant 7th
             if origChord.chordKind == 'major':
                 option1 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh')
@@ -1249,7 +1289,7 @@ class MusicEngine:
 #             else:
 #                 option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 7, -1)
 
-        if option1 is None:
+        if option1 is None and MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '9', origChord):
             # add major 9th
             if origChord.chordKind == 'major-seventh':
                 option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-ninth')
@@ -1276,92 +1316,110 @@ class MusicEngine:
         # Greg's new option1a: unsuspend fourth (to major or minor third) if orig is sus4 or 7sus4
         # or suspend fourth if orig has major or minor third, or let the lead take aug4 in a maj6
         # chord (which is actually a half-diminished-seventh a tritone above)
-        if origChord.chordKind == 'suspended-fourth':
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'major', keepCSMs=True
-            )
-            if option1a is None:
-                option1a = MusicEngine.tryChord(
-                    leadPitchName, origChord, 'minor', keepCSMs=True
-                )
-            if option1a is not None:
-                # e.g. if it was suspended-fourth with add b7, now it is
-                # minor or major with add b7, which can be simplified to
-                # 'minor-seventh' or 'dominant-seventh'
-                MusicEngine.simplifyChordSymbol(option1a)
-        elif origChord.chordKind == 'suspended-fourth-seventh':
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'dominant-seventh', keepCSMs=True
-            )
-            if option1a is None:
-                option1a = MusicEngine.tryChord(
-                    leadPitchName, origChord, 'minor-seventh', keepCSMs=True
-                )
-        elif origChord.chordKind in ('major', 'minor'):
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
-            )
-        elif origChord.chordKind in (
-                'dominant-seventh', 'major-seventh', 'minor-major-seventh', 'minor-seventh'):
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
-            )
-            if option1a is not None:
-                # gotta put the 7th back in
-                if origChord.chordKind in ('dominant-seventh', 'minor-seventh'):
-                    option1a.addChordStepModification(
-                        m21.harmony.ChordStepModification('add', 7, -1)
+        if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, ('3', '-3'), origChord):
+            if origChord.chordKind == 'suspended-fourth':
+                if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'major', keepCSMs=True
                     )
-                else:
-                    option1a.addChordStepModification(
-                        m21.harmony.ChordStepModification('add', 7)
+                elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '-3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'minor', keepCSMs=True
                     )
-        elif origChord.chordKind == 'major-sixth':
-            # a major sixth with an augmented fourth instead of a fifth is
-            # a half-diminished-seventh rooted on that augmented fourth (i.e
-            # rooted a tritone up)
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'half-diminished-seventh', 6
-            )
+                if option1a is not None:
+                    # e.g. if it was suspended-fourth with add b7, now it is
+                    # minor or major with add b7, which can be simplified to
+                    # 'minor-seventh' or 'dominant-seventh'
+                    MusicEngine.simplifyChordSymbol(option1a)
+            elif origChord.chordKind == 'suspended-fourth-seventh':
+                if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'dominant-seventh', keepCSMs=True
+                    )
+                elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '-3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'minor-seventh', keepCSMs=True
+                    )
+        elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '4', origChord):
+            if origChord.chordKind in ('major', 'minor'):
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
+                )
+            elif origChord.chordKind in (
+                    'dominant-seventh', 'major-seventh', 'minor-major-seventh', 'minor-seventh'):
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
+                )
+                if option1a is not None:
+                    # gotta put the 7th back in
+                    if origChord.chordKind in ('dominant-seventh', 'minor-seventh'):
+                        option1a.addChordStepModification(
+                            m21.harmony.ChordStepModification('add', 7, -1)
+                        )
+                    else:
+                        option1a.addChordStepModification(
+                            m21.harmony.ChordStepModification('add', 7)
+                        )
+        elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '#4', origChord):
+            if origChord.chordKind == 'major-sixth':
+                # a major sixth with an augmented fourth instead of a fifth is
+                # a half-diminished-seventh rooted on that augmented fourth (i.e
+                # rooted a tritone up)
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'half-diminished-seventh', 6
+                )
 
         if option1a is not None:
             allOptions.append(option1a)
 
-
         # 2. 7th chord with root 5th above original
-        option2 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 7)
-        if option2 is not None:
-            allOptions.append(option2)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, 7):
+            option2 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 7)
+            if option2 is not None:
+                allOptions.append(option2)
 
         # 3. 7th chord with root 5th below original
-        option3 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -7)
-        if option3 is not None:
-            allOptions.append(option3)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, -7):
+            option3 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -7)
+            if option3 is not None:
+                allOptions.append(option3)
 
         # 4. 7th chord with root semitone below original
-        option4 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -1)
-        if option4 is not None:
-            allOptions.append(option4)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, -1):
+            option4 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -1)
+            if option4 is not None:
+                allOptions.append(option4)
 
         # 5. 7th chord with root semitone above original
-        option5 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 1)
-        if option5 is not None:
-            allOptions.append(option5)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, 1):
+            option5 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 1)
+            if option5 is not None:
+                allOptions.append(option5)
 
         # 6. 7th chord with root tritone above/below original
-        option6 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 6)
-        if option6 is not None:
-            allOptions.append(option6)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, 6):
+            option6 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 6)
+            if option6 is not None:
+                allOptions.append(option6)
 
         # 7. dim7th chord on original root
-        option7 = MusicEngine.tryChord(leadPitchName, origChord, 'diminished-seventh')
-        if option7 is not None:
-            allOptions.append(option7)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '-3', '-5', '--7'), origChord):
+            option7 = MusicEngine.tryChord(leadPitchName, origChord, 'diminished-seventh')
+            if option7 is not None:
+                allOptions.append(option7)
 
         # 8. minor 7th chord with root 5th above original
-        option8 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-seventh', 7)
-        if option8 is not None:
-            allOptions.append(option8)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '-3', '5', '-7'), origChord):
+            option8 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-seventh', 7)
+            if option8 is not None:
+                allOptions.append(option8)
 
         if not allOptions:
             raise MusicEngineException('no non-pillar chord options found')
@@ -1635,11 +1693,12 @@ class MusicEngine:
                 nearestNoteOffset - container.getOffsetInHierarchy(chords)
             )
             if nearestNoteLocalOffset == 0. and offset < 1.0:  # type: ignore
-                # less than a quarter note after start of measure?  Go ahead
-                # and start the chord at start of measure (see "Could It Be Magic",
-                # where the Cma7 in measures 11, 17, 19, is positioned about 0.4
-                # quarter notes (just less than an eighth note) after the note at
-                # start of the measure, but clearly needs to start with that note).
+                # Within first note in measure, and less than a quarter note
+                # after start of that note?  Go ahead and start the chord at
+                # start of that note (see "Could It Be Magic", where the Cmaj7
+                # in measures 11, 17, 19, is positioned about 0.4 quarter notes
+                # (just less than an eighth note) after the note at start of
+                # the measure, but clearly needs to start with that note).
                 fixedOffset = 0.
                 if fixedOffset == offset:
                     continue
@@ -1652,7 +1711,7 @@ class MusicEngine:
             nearestNoteLocalOffsetDur = (
                 m21.duration.Duration(quarterLength=nearestNoteLocalOffset)
             )
-            if nearestNoteLocalOffsetDur.tuplets:
+            if len(nearestNoteLocalOffsetDur.tuplets) == 1:
                 # round to the nearest tuplet-y eighth note offset
                 tupletMultiplier: OffsetQL = nearestNoteLocalOffsetDur.tuplets[0].tupletMultiplier()
                 tupletyEighthNotesPerQuarterNote: OffsetQL = opFrac(2.0 / tupletMultiplier)
@@ -1875,6 +1934,7 @@ class MusicEngine:
         hr: HarmonyRange,
     ) -> m21.note.GeneralNote | None:
         # if hr._gNote is still in the melody (hasn't been replaced by several notes)
+        # Currently, this is always true.
         if hr._gNote is not None and hr._gNote.activeSite is not None:
             return hr._gNote
 
