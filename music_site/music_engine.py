@@ -1084,25 +1084,52 @@ class MusicEngine:
             .getElementsByClass(m21.key.KeySignature)
         )
 
-        keySigAndTransposeIntervalAtOffset: dict[
-            OffsetQL,
-            tuple[m21.key.KeySignature, m21.interval.Interval]
-        ] = {}
-        for keySig in keySigs:
-            offsetInScore: OffsetQL = keySig.getOffsetInHierarchy(score)
-            if offsetInScore not in keySigAndTransposeIntervalAtOffset:
-                interval: m21.interval.Interval = MusicEngine.getBestTranspositionForKeySig(
-                    keySig, semitonesUp
-                )
-                keySigAndTransposeIntervalAtOffset[offsetInScore] = keySig, interval
+        keySigAndTransposeIntervalAtOffsetList: list[
+            dict[
+                OffsetQL,
+                tuple[m21.key.KeySignature, m21.interval.Interval]
+            ]
+        ] = []
 
-        if opFrac(0) not in keySigAndTransposeIntervalAtOffset:
-            startKey: m21.key.KeySignature = m21.key.KeySignature(0)
-            interval = MusicEngine.getBestTranspositionForKeySig(startKey, semitonesUp)
-            keySigAndTransposeIntervalAtOffset[opFrac(0)] = startKey, interval
+        # we try semitonesUp, as well as down an extra half and up an extra half,
+        # in case they get us more readable key signatures.
+        for semis in (semitonesUp, semitonesUp - 1, semitonesUp + 1):
+            keySigAndTransposeIntervalAtOffset: dict[
+                OffsetQL,
+                tuple[m21.key.KeySignature, m21.interval.Interval]
+            ] = {}
+            for keySig in keySigs:
+                offsetInScore: OffsetQL = keySig.getOffsetInHierarchy(score)
+                if offsetInScore not in keySigAndTransposeIntervalAtOffset:
+                    interval: m21.interval.Interval = MusicEngine.getBestTranspositionForKeySig(
+                        keySig, semis
+                    )
+                    keySigAndTransposeIntervalAtOffset[offsetInScore] = keySig, interval
 
-        # turn it into a sorted (by offset) list of [offset, keysig, interval] tuples
+            if opFrac(0) not in keySigAndTransposeIntervalAtOffset:
+                startKey: m21.key.KeySignature = m21.key.KeySignature(0)
+                interval = MusicEngine.getBestTranspositionForKeySig(startKey, semis)
+                keySigAndTransposeIntervalAtOffset[opFrac(0)] = startKey, interval
 
+            keySigAndTransposeIntervalAtOffsetList.append(keySigAndTransposeIntervalAtOffset)
+
+        # Figure out which of the three transpositions is best (lowest total number of
+        # sharps/flats the in resulting keysigs)
+        lowestAccidCount: int = int(MAX_OFFSETQL)
+        bestIdx: int = -1
+        for i, keySigAndTransposeIntervalAtOffset in enumerate(
+                keySigAndTransposeIntervalAtOffsetList):
+            accids: int = 0
+            for _offset, (keySig, interval) in keySigAndTransposeIntervalAtOffset.items():
+                newKeySig: m21.key.KeySignature = keySig.transpose(interval, inPlace=False)
+                accids += abs(newKeySig.sharps)
+            if accids < lowestAccidCount:
+                lowestAccidCount = accids
+                bestIdx = i
+
+        # turn best keySigAndTransposeIntervalAtOffset into a sorted
+        # (by offset) list of [offset, keysig, interval] tuples
+        keySigAndTransposeIntervalAtOffset = keySigAndTransposeIntervalAtOffsetList[bestIdx]
         output: list[tuple[OffsetQL, m21.key.KeySignature, m21.interval.Interval]] = []
         for offset, (keySig, interval) in keySigAndTransposeIntervalAtOffset.items():
             output.append((offset, keySig, interval))
@@ -1233,6 +1260,45 @@ class MusicEngine:
                 cs.chordStepModifications = []
                 cs.figure = None  # next get will update it
 
+    CHORD_DEGREE_TO_ROOT_ALTER: dict[str, int] = {
+        '1': 0,
+        '2': 2,
+        '-3': 3,
+        '3': 4,
+        '4': 5,
+        '#4': 6,
+        '-5': 6,
+        '5': 7,
+        '6': 9,
+        '--7': 9,
+        '-7': 10,
+        '7': 11,
+        '9': 14
+    }
+
+    @staticmethod
+    def pitchCanBeDegreeOfChord(
+        pitch: PitchName,
+        degrees: str | t.Iterable[str],
+        chord: m21.harmony.ChordSymbol,
+        chordAlter: int = 0
+    ) -> bool:
+        if isinstance(degrees, str):
+            degrees = [degrees]
+
+        pitchPc: int = pitch.pitch.pitchClass
+        root: m21.pitch.Pitch = chord.root()
+        if chordAlter:
+            root = root.transpose(chordAlter, inPlace=False)
+
+        for degree in degrees:
+            rootAlter: int = MusicEngine.CHORD_DEGREE_TO_ROOT_ALTER[degree]
+            alteredRootPc: int = (root.pitchClass + rootAlter) % 12
+            if pitchPc == alteredRootPc:
+                return True
+
+        return False
+
     @staticmethod
     def getNonPillarChordOptions(
         leadPitchName: PitchName,
@@ -1253,28 +1319,29 @@ class MusicEngine:
         # 1. Extended chord: if lead is on 6, -7, or 9, just add that to the existing chord
 
         # try adding 6th (or 13th)
-        if origChord.chordKind == 'major':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-sixth')
-        elif origChord.chordKind == 'minor':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-sixth')
-        elif origChord.chordKind in (
-                'major-seventh', 'dominant-seventh', 'minor-seventh', 'minor-major-seventh',
-                'dominant-ninth', 'minor-ninth', 'minor-major-ninth'):
-            option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 13)
-        elif origChord.chordKind == 'major-ninth':
-            option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 6)
-            if option1 is not None:
-                option1.chordKindStr = 'maj69'
-        elif origChord.chordKind == 'major-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-13th')
-        elif origChord.chordKind == 'dominant-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-13th')
-        elif origChord.chordKind == 'minor-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-13th')
-        elif origChord.chordKind == 'minor-major-11th':
-            option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-major-13th')
+        if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '6', origChord):
+            if origChord.chordKind == 'major':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-sixth')
+            elif origChord.chordKind == 'minor':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-sixth')
+            elif origChord.chordKind in (
+                    'major-seventh', 'dominant-seventh', 'minor-seventh', 'minor-major-seventh',
+                    'dominant-ninth', 'minor-ninth', 'minor-major-ninth'):
+                option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 13)
+            elif origChord.chordKind == 'major-ninth':
+                option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 6)
+                if option1 is not None:
+                    option1.chordKindStr = 'maj69'
+            elif origChord.chordKind == 'major-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-13th')
+            elif origChord.chordKind == 'dominant-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-13th')
+            elif origChord.chordKind == 'minor-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-13th')
+            elif origChord.chordKind == 'minor-major-11th':
+                option1 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-major-13th')
 
-        if option1 is None:
+        if option1 is None and MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '-7', origChord):
             # add dominant 7th
             if origChord.chordKind == 'major':
                 option1 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh')
@@ -1287,7 +1354,7 @@ class MusicEngine:
 #             else:
 #                 option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 7, -1)
 
-        if option1 is None:
+        if option1 is None and MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '9', origChord):
             # add major 9th
             if origChord.chordKind == 'major-seventh':
                 option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-ninth')
@@ -1314,92 +1381,110 @@ class MusicEngine:
         # Greg's new option1a: unsuspend fourth (to major or minor third) if orig is sus4 or 7sus4
         # or suspend fourth if orig has major or minor third, or let the lead take aug4 in a maj6
         # chord (which is actually a half-diminished-seventh a tritone above)
-        if origChord.chordKind == 'suspended-fourth':
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'major', keepCSMs=True
-            )
-            if option1a is None:
-                option1a = MusicEngine.tryChord(
-                    leadPitchName, origChord, 'minor', keepCSMs=True
-                )
-            if option1a is not None:
-                # e.g. if it was suspended-fourth with add b7, now it is
-                # minor or major with add b7, which can be simplified to
-                # 'minor-seventh' or 'dominant-seventh'
-                MusicEngine.simplifyChordSymbol(option1a)
-        elif origChord.chordKind == 'suspended-fourth-seventh':
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'dominant-seventh', keepCSMs=True
-            )
-            if option1a is None:
-                option1a = MusicEngine.tryChord(
-                    leadPitchName, origChord, 'minor-seventh', keepCSMs=True
-                )
-        elif origChord.chordKind in ('major', 'minor'):
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
-            )
-        elif origChord.chordKind in (
-                'dominant-seventh', 'major-seventh', 'minor-major-seventh', 'minor-seventh'):
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
-            )
-            if option1a is not None:
-                # gotta put the 7th back in
-                if origChord.chordKind in ('dominant-seventh', 'minor-seventh'):
-                    option1a.addChordStepModification(
-                        m21.harmony.ChordStepModification('add', 7, -1)
+        if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, ('3', '-3'), origChord):
+            if origChord.chordKind == 'suspended-fourth':
+                if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'major', keepCSMs=True
                     )
-                else:
-                    option1a.addChordStepModification(
-                        m21.harmony.ChordStepModification('add', 7)
+                elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '-3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'minor', keepCSMs=True
                     )
-        elif origChord.chordKind == 'major-sixth':
-            # a major sixth with an augmented fourth instead of a fifth is
-            # a half-diminished-seventh rooted on that augmented fourth (i.e
-            # rooted a tritone up)
-            option1a = MusicEngine.tryChord(
-                leadPitchName, origChord, 'half-diminished-seventh', 6
-            )
+                if option1a is not None:
+                    # e.g. if it was suspended-fourth with add b7, now it is
+                    # minor or major with add b7, which can be simplified to
+                    # 'minor-seventh' or 'dominant-seventh'
+                    MusicEngine.simplifyChordSymbol(option1a)
+            elif origChord.chordKind == 'suspended-fourth-seventh':
+                if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'dominant-seventh', keepCSMs=True
+                    )
+                elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '-3', origChord):
+                    option1a = MusicEngine.tryChord(
+                        leadPitchName, origChord, 'minor-seventh', keepCSMs=True
+                    )
+        elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '4', origChord):
+            if origChord.chordKind in ('major', 'minor'):
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
+                )
+            elif origChord.chordKind in (
+                    'dominant-seventh', 'major-seventh', 'minor-major-seventh', 'minor-seventh'):
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'suspended-fourth', keepCSMs=True
+                )
+                if option1a is not None:
+                    # gotta put the 7th back in
+                    if origChord.chordKind in ('dominant-seventh', 'minor-seventh'):
+                        option1a.addChordStepModification(
+                            m21.harmony.ChordStepModification('add', 7, -1)
+                        )
+                    else:
+                        option1a.addChordStepModification(
+                            m21.harmony.ChordStepModification('add', 7)
+                        )
+        elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '#4', origChord):
+            if origChord.chordKind == 'major-sixth':
+                # a major sixth with an augmented fourth instead of a fifth is
+                # a half-diminished-seventh rooted on that augmented fourth (i.e
+                # rooted a tritone up)
+                option1a = MusicEngine.tryChord(
+                    leadPitchName, origChord, 'half-diminished-seventh', 6
+                )
 
         if option1a is not None:
             allOptions.append(option1a)
 
-
         # 2. 7th chord with root 5th above original
-        option2 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 7)
-        if option2 is not None:
-            allOptions.append(option2)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, 7):
+            option2 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 7)
+            if option2 is not None:
+                allOptions.append(option2)
 
         # 3. 7th chord with root 5th below original
-        option3 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -7)
-        if option3 is not None:
-            allOptions.append(option3)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, -7):
+            option3 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -7)
+            if option3 is not None:
+                allOptions.append(option3)
 
         # 4. 7th chord with root semitone below original
-        option4 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -1)
-        if option4 is not None:
-            allOptions.append(option4)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, -1):
+            option4 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -1)
+            if option4 is not None:
+                allOptions.append(option4)
 
         # 5. 7th chord with root semitone above original
-        option5 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 1)
-        if option5 is not None:
-            allOptions.append(option5)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, 1):
+            option5 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 1)
+            if option5 is not None:
+                allOptions.append(option5)
 
         # 6. 7th chord with root tritone above/below original
-        option6 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 6)
-        if option6 is not None:
-            allOptions.append(option6)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '3', '5', '-7'), origChord, 6):
+            option6 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 6)
+            if option6 is not None:
+                allOptions.append(option6)
 
         # 7. dim7th chord on original root
-        option7 = MusicEngine.tryChord(leadPitchName, origChord, 'diminished-seventh')
-        if option7 is not None:
-            allOptions.append(option7)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '-3', '-5', '--7'), origChord):
+            option7 = MusicEngine.tryChord(leadPitchName, origChord, 'diminished-seventh')
+            if option7 is not None:
+                allOptions.append(option7)
 
         # 8. minor 7th chord with root 5th above original
-        option8 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-seventh', 7)
-        if option8 is not None:
-            allOptions.append(option8)
+        if MusicEngine.pitchCanBeDegreeOfChord(
+                leadPitchName, ('1', '-3', '5', '-7'), origChord):
+            option8 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-seventh', 7)
+            if option8 is not None:
+                allOptions.append(option8)
 
         if not allOptions:
             raise MusicEngineException('no non-pillar chord options found')
@@ -1589,6 +1674,137 @@ class MusicEngine:
                             nextMeas.insert(0, cs)
 
     @staticmethod
+    def fixupChordSymbolOffsets(melody: m21.stream.Part, chords: m21.stream.Part):
+        chordSyms: list[m21.harmony.ChordSymbol] = list(
+            chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
+        )
+
+        for i, cs in enumerate(chordSyms):
+            fixedOffset: OffsetQL
+            csOffset: OffsetQL = cs.getOffsetInHierarchy(chords)
+            container: m21.stream.Stream | None = (
+                chords.containerInHierarchy(cs, setActiveSite=False)
+            )
+            if container is None:
+                raise MusicEngineException('cs not in chords')
+
+            # where nearby is within four quarter notes either side of csOffset.
+            nearbyNoteList: list[m21.note.Note] = list(
+                melody.recurse()
+                .getElementsByOffsetInHierarchy(
+                    opFrac(csOffset - 4.0),
+                    opFrac(csOffset + 4.0),
+                    mustFinishInSpan=False,
+                    mustBeginInSpan=False,
+                    includeElementsThatEndAtStart=False)
+                .getElementsByClass(m21.note.GeneralNote)
+                .getElementsNotOfClass(m21.harmony.ChordSymbol)
+            )
+            nearestRecentNote: m21.note.GeneralNote | None = None
+            nearestNoteOffset: OffsetQL | None = None
+            for n in nearbyNoteList:
+                nOffset: OffsetQL = n.getOffsetInHierarchy(melody)
+                if nOffset > csOffset:
+                    continue
+                if nearestNoteOffset is None:
+                    nearestNoteOffset = nOffset
+                    nearestRecentNote = n
+                    continue
+                if nOffset > nearestNoteOffset:
+                    nearestNoteOffset = nOffset
+                    nearestRecentNote = n
+                    continue
+
+            if nearestRecentNote is None:
+                # chord without note; we just have to make sure offset in container is
+                # expressible and not complex.  We don't have to worry about tuplets.
+                offset: OffsetQL = cs.getOffsetInHierarchy(container)
+                # round to the nearest eighth-note offset
+                fixedOffset = opFrac(int((offset * 2.) + 0.5) / 2.)
+                if fixedOffset == offset:
+                    continue
+
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
+                continue
+
+            if nearestNoteOffset == csOffset:
+                # chord starts at a note start, we're good
+                continue
+
+            offset = cs.getOffsetInHierarchy(container)
+
+            # first thing (no need to worry about tuplets), see if the start or end
+            # of the nearestRecentNote is very close; if so, just use that.
+            if t.TYPE_CHECKING:
+                assert nearestNoteOffset is not None
+                assert nearestRecentNote is not None
+            startDiff: OffsetQL = opFrac(nearestNoteOffset - csOffset)
+            noteEndOffset: OffsetQL = opFrac(nearestNoteOffset + nearestRecentNote.quarterLength)
+            endDiff: OffsetQL = opFrac(noteEndOffset - csOffset)
+            nearestDiff: OffsetQL = startDiff
+            if abs(endDiff) < abs(nearestDiff):  # type: ignore
+                nearestDiff = endDiff
+            if abs(nearestDiff) < 0.125:  # type: ignore
+                # less than a 32nd note away
+                fixedOffset = opFrac(offset + nearestDiff)
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
+                continue
+
+            nearestNoteLocalOffset: OffsetQL = opFrac(
+                nearestNoteOffset - container.getOffsetInHierarchy(chords)
+            )
+            if nearestNoteLocalOffset == 0. and offset < 1.0:  # type: ignore
+                # Within first note in measure, and less than a quarter note
+                # after start of that note?  Go ahead and start the chord at
+                # start of that note (see "Could It Be Magic", where the Cmaj7
+                # in measures 11, 17, 19, is positioned about 0.4 quarter notes
+                # (just less than an eighth note) after the note at start of
+                # the measure, but clearly needs to start with that note).
+                fixedOffset = 0.
+                if fixedOffset == offset:
+                    continue
+
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
+                continue
+
+            nearestNoteLocalOffsetDur = (
+                m21.duration.Duration(quarterLength=nearestNoteLocalOffset)
+            )
+            if len(nearestNoteLocalOffsetDur.tuplets) == 1:
+                # round to the nearest tuplet-y eighth note offset
+                tupletMultiplier: OffsetQL = nearestNoteLocalOffsetDur.tuplets[0].tupletMultiplier()
+                tupletyEighthNotesPerQuarterNote: OffsetQL = opFrac(2.0 / tupletMultiplier)
+                fixedOffset = opFrac(
+                    int(
+                        (offset * tupletyEighthNotesPerQuarterNote) + 0.5
+                    )
+                    / tupletyEighthNotesPerQuarterNote
+                )
+
+                if fixedOffset == offset:
+                    continue
+
+                container.remove(cs)
+                cs.quarterLength = 0
+                container.insert(fixedOffset, cs)
+                continue
+
+            # round to the nearest eighth-note offset
+            fixedOffset = opFrac(int((offset * 2.) + 0.5) / 2.)
+            if fixedOffset == offset:
+                continue
+
+            container.remove(cs)
+            cs.quarterLength = 0
+            container.insert(fixedOffset, cs)
+
+    @staticmethod
     def realizeChordSymbolDurations(piece: m21.stream.Stream):
         # this is a copy of m21.harmony.realizeChordSymbolDurations, that instead
         # of extending a chordsym duration beyond the end-of-measure, will extend
@@ -1736,6 +1952,10 @@ class MusicEngine:
         chords: m21.stream.Part,
         hr: HarmonyRange,
     ) -> m21.harmony.ChordSymbol | None:
+        # if hr._chord is still in the melody (hasn't been replaced by several chords)
+        if hr._chord is not None and hr._chord.activeSite is not None:
+            return hr._chord
+
         csList: list[m21.harmony.ChordSymbol] = (
             MusicEngine.getChordSymbolsInHarmonyRange(chords, hr)
         )
@@ -1778,6 +1998,11 @@ class MusicEngine:
         melody: m21.stream.Part,
         hr: HarmonyRange,
     ) -> m21.note.GeneralNote | None:
+        # if hr._gNote is still in the melody (hasn't been replaced by several notes)
+        # Currently, this is always true.
+        if hr._gNote is not None and hr._gNote.activeSite is not None:
+            return hr._gNote
+
         includeEndBoundary: bool = False
         includeElementsThatEndAtStart: bool = False
         if hr.startOffset == hr.endOffset:
@@ -2122,7 +2347,7 @@ class MusicEngine:
                 )
 
     @staticmethod
-    def makeTies(shoppedVoices: list[FourVoices]):
+    def fixupTies(shoppedVoices: list[FourVoices]):
         # turn list of FourVoices into four really long lists of notes
         tenorNoteList: list[m21.note.GeneralNote] = []
         leadNoteList: list[m21.note.GeneralNote] = []
@@ -2195,6 +2420,27 @@ class MusicEngine:
                 nextHarmNote.tie.placement = MusicEngine.TIE_PLACEMENT[partName]
 
     @staticmethod
+    def splitComplexNotesAndRests(shopped: m21.stream.Score):
+        for p in shopped.parts:
+            for m in p[m21.stream.Measure]:
+                for v in m.voices:
+                    for el in v:
+                        if not isinstance(el, (m21.note.Note, m21.note.Rest)):
+                            continue
+                        if el.duration.isGrace:
+                            continue
+                        if len(el.duration.components) == 1:
+                            continue
+                        splits: m21.base._SplitTuple = el.splitAtDurations()
+                        if len(splits) <= 1:
+                            continue
+                        currOffset: OffsetQL = el.getOffsetInHierarchy(v)
+                        v.remove(el)
+                        for split in splits:
+                            v.insert(currOffset, split)
+                            currOffset = opFrac(currOffset + split.quarterLength)
+
+    @staticmethod
     def shopPillarMelodyNotesFromLeadSheet(
         inLeadSheet: m21.stream.Score,
         arrType: ArrangementType
@@ -2232,14 +2478,19 @@ class MusicEngine:
         MusicEngine.fixChordSymbolsAtEndOfMeasure(chords)
 
         # more fixups to the leadsheet score
-        M21Utilities.fixupBadChordKinds(leadSheet, inPlace=True)
+        M21Utilities.fixupBadChordKinds(chords, inPlace=True)
+
+        # some chord symbols are positioned at very strange offsets, and we need to
+        # round them off to reasonable offsets (we use melody to determine whether
+        # there are tuplets in play, etc).
+        MusicEngine.fixupChordSymbolOffsets(melody, chords)
 
         # We call realizeChordSymbolDurations() because otherwise ChordSymbols have
         # duration == 0 or 1, which doesn't help us find the ChordSymbol that has a
         # time range that contains a particular offset.  We have our own copy of this,
         # with an added "bugfix" that splits chordsyms across barlines, so the new
         # chordsym duration doesn't push the barline out.
-        MusicEngine.realizeChordSymbolDurations(leadSheet)
+        MusicEngine.realizeChordSymbolDurations(chords)
 
         # if there are simultaneous chords (same offset) we should pick one
         # and remove the others.  Pick one that has the melody note in it,
@@ -2375,9 +2626,12 @@ class MusicEngine:
         for part in shopped.parts:
             m21.stream.makeNotation.makeBeams(part, inPlace=True, setStemDirections=False)
 
+        # fix up complex note and rest durations in shopped score
+        MusicEngine.splitComplexNotesAndRests(shopped)
+
         # If there is a tie in the lead voice, and the notes in a harmony part are also
         # the same as each other, put a tie there, too.
-        MusicEngine.makeTies(shoppedVoices)
+        # MusicEngine.fixupTies(shoppedVoices)
 
         return shopped
 
@@ -2638,10 +2892,6 @@ class MusicEngine:
             if mVoice is None:
                 raise MusicEngineException('hr.gNote not in hr.melody')
 
-            if cVoice is not None:
-                if cVoice.getOffsetInHierarchy(chords) != mVoice.getOffsetInHierarchy(melody):
-                    raise MusicEngineException('mismatched chords v melody voice offsets')
-
             mContainer: m21.stream.Stream | None = mVoice
             if not isinstance(mContainer, m21.stream.Measure):
                 mContainer = melody.containerInHierarchy(mVoice, setActiveSite=False)
@@ -2650,11 +2900,11 @@ class MusicEngine:
             mMeas: m21.stream.Measure = mContainer
 
             # update currVoices/prevVoices as appropriate
-            if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
+            if tlMeas.getOffsetInHierarchy(shopped) != mMeas.getOffsetInHierarchy(melody):
                 measIndex += 1
                 tlMeas = tlMeasures[measIndex]
                 bbMeas = bbMeasures[measIndex]
-                if tlMeas.measureNumberWithSuffix() != mMeas.measureNumberWithSuffix():
+                if tlMeas.getOffsetInHierarchy(shopped) != mMeas.getOffsetInHierarchy(melody):
                     raise MusicEngineException('cannot find next measure to shop')
                 prevVoices = currVoices
                 currVoices = FourVoices(
@@ -3119,6 +3369,7 @@ class MusicEngine:
                     if partRange.isTooLow(bass.pitch):
                         # still too low, just sing the same note (root) as the lead
                         bass = MusicEngine.copyNote(lead)
+                        bass.quarterLength = durQL
 
             elif leadPitchName == other:
                 # Lead is on 2, 3, or 4, take root a 9th, 10th or 11th below

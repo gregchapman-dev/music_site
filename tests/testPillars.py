@@ -2,6 +2,7 @@ from pathlib import Path
 import tempfile
 import argparse
 import sys
+import cProfile
 import typing as t
 import music21 as m21
 from music21.base import VERSION_STR
@@ -57,6 +58,7 @@ def runTheTest(inputPath: Path) -> bool:
     upperGaps: int = MusicEngine.countHarmonyGaps(upperShop)
     print(f'lowerGaps = {lowerGaps}')
     print(f'upperGaps = {upperGaps}')
+    # return True
 
     # show scores via MusicXML (without any makeNotation fixups)
     print('displaying both shopped scores (via MusicXML/Musescore)')
@@ -81,6 +83,7 @@ parser.add_argument('input_file')
 print('music21 version:', VERSION_STR, file=sys.stderr)
 args = parser.parse_args()
 
+# cProfile.run('runTheTest(Path(args.input_file))', sort='cumtime')
 runTheTest(Path(args.input_file))
 
 print('done.')
