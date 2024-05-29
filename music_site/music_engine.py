@@ -175,6 +175,8 @@ class Chord(Sequence):
 
 class ChordSymbolOptions(m21.harmony.ChordSymbol):
     def __init__(self, chordSymbols: list[m21.harmony.ChordSymbol]):
+        # TODO: need to init the Music21Object super, but not the
+        # TODO: ChordSymbol/Harmony/Chord/ChordBase/NotRest/GeneralNote.
         if not chordSymbols:
             raise MusicEngineException('ChordSymbolOptions must have at least one option')
 
@@ -198,6 +200,12 @@ class ChordSymbolOptions(m21.harmony.ChordSymbol):
         return self.chordSymbols[self._selection]
 
     # Pass-thru APIs that just call the selected ChordSymbol
+    # TODO: need to pass-thru the Harmony/Chord/ChordBase/NotRest/GeneralNote APIs
+    # TODO: as well, but not the Music21Object APIs.
+    # TODO: Will that even work (using one Music21Object as the base of multiple
+    # TODO: ChordSymbol/Harmony/Chord/ChordBase/NotRest/GeneralNote objects)?
+    # TODO: Might need to implement the Music21Object APIs here (to catch them)
+    # TODO: and then pass them directly to the base Music21Object?
 
     def _adjustOctaves(self, pitches):
         return self.cs._adjustPitches(pitches)
