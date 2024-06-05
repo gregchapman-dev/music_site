@@ -469,7 +469,11 @@ class HarmonyRange:
         startOffset: OffsetQL,
         endOffset: OffsetQL,
         chord: m21.harmony.ChordSymbol | None,  # None is same as NoChord
-        gNote: m21.note.GeneralNote | None  # None is same as invisible Rest
+        melodyNote: m21.note.GeneralNote | None,  # None is same as invisible Rest
+        chordMeas: m21.stream.Measure,
+        melodyMeas: m21.stream.Measure,
+        startOffsetInChordMeas: OffsetQL,
+        startOffsetInMelodyMeas: OffsetQL
     ):
         if startOffset == MAX_OFFSETQL:
             raise MusicEngineException('oops')
@@ -478,12 +482,23 @@ class HarmonyRange:
 
         self.startOffset: OffsetQL = startOffset
         self.endOffset: OffsetQL = endOffset
+        self.durQL = opFrac(endOffset - startOffset)
+
+        self.chordMeas: m21.stream.Measure = chordMeas
+        self.melodyMeas: m21.stream.Measure = melodyMeas
+
+        self.startOffsetInChordMeas: OffsetQL = startOffsetInChordMeas
+        self.endOffsetInChordMeas: OffsetQL = opFrac(startOffsetInChordMeas + self.durQL)
+
+        self.startOffsetInMelodyMeas = startOffsetInMelodyMeas
+        self.endOffsetInMelodyMeas: OffsetQL = opFrac(startOffsetInMelodyMeas + self.durQL)
+
         self._chord: m21.harmony.ChordSymbol | None = chord
-        self._gNote: m21.note.GeneralNote | None = gNote
+        self._melodyNote: m21.note.GeneralNote | None = melodyNote
 
     def __repr__(self) -> str:
         return (f'[{self.startOffset} .. {self.endOffset}]: '
-            + f'chord={self._chord}, gNote={self._gNote}')
+            + f'chord={self._chord}, melodyNote={self._melodyNote}')
 
 class HarmonyIterator:
     # One important requirement: clients must be able to modify the passed-in Parts
@@ -491,9 +506,23 @@ class HarmonyIterator:
     # And we do not return the actual ChordSymbol and Note, we just return startOffset
     # and endOffset (the client needs to go get/process the ChordSymbol portion and
     # Note portion themselves).
+    # Note that while the Parts can be modified, we assume that measure offsets and
+    # durations will not change, because we keep track of current measure (based on
+    # offset) in both chords and melody during iteration, for performance purposes.
     def __init__(self, chords: m21.stream.Part, melody: m21.stream.Part):
         self.chords: m21.stream.Part = chords
         self.melody: m21.stream.Part = melody
+
+        self.chordMeasures: list[m21.stream.Measure] = []
+        self.chordMeasStartOffsets: list[OffsetQL] = []
+        self.chordMeasEndOffsets: list[OffsetQL] = []
+        self.chordMeasIdx = 0
+
+        self.melodyMeasures: list[m21.stream.Measure] = []
+        self.melodyMeasStartOffsets: list[OffsetQL] = []
+        self.melodyMeasEndOffsets: list[OffsetQL] = []
+        self.melodyMeasIdx = 0
+
         self.highestTime: OffsetQL = max(self.chords.highestTime, self.melody.highestTime)
 
         self.currRange: HarmonyRange | None = None
@@ -502,19 +531,80 @@ class HarmonyIterator:
         self.currNoteEnd = MAX_OFFSETQL
 
         self.cList: list[m21.harmony.ChordSymbol] = []
+        self.cStartOffsetList: list[OffsetQL] = []
+        self.cEndOffsetList: list[OffsetQL] = []
         self.cNextIdx: int = 0
         self.mList: list[m21.note.Note] = []
+        self.mStartOffsetList: list[OffsetQL] = []
+        self.mEndOffsetList: list[OffsetQL] = []
         self.mNextIdx: int = 0
 
         self.lookAheadChord: m21.harmony.ChordSymbol | None = None
         self.lookAheadNote: m21.note.GeneralNote | None = None
 
-    def __iter__(self):
+    @staticmethod
+    def computeMeasureLists(
+        part: m21.stream.Part
+    ) -> tuple[list[m21.stream.Measure], list[OffsetQL], list[OffsetQL]]:
+        outMeasures: list[m21.stream.Measure] = []
+        outStartOffsets: list[OffsetQL] = []
+        outEndOffsets: list[OffsetQL] = []
+
+        for meas in part.getElementsByClass(m21.stream.Measure):
+            startOffset: OffsetQL = part.elementOffset(meas)
+            endOffset: OffsetQL = opFrac(startOffset + meas.quarterLength)
+            outMeasures.append(meas)
+            outStartOffsets.append(startOffset)
+            outEndOffsets.append(endOffset)
+
+        return outMeasures, outStartOffsets, outEndOffsets
+
+    def __iter__(self) -> 'HarmonyIterator':
         self.currRange = None
-        self.cList = list(self.chords.recurse().getElementsByClass(m21.harmony.ChordSymbol))
+
+        self.chordMeasures, self.chordMeasStartOffsets, self.chordMeasEndOffsets = (
+            self.computeMeasureLists(self.chords)
+        )
+
+        if self.melody is self.chords:
+            self.melodyMeasures = self.chordMeasures
+            self.melodyMeasStartOffsets = self.chordMeasStartOffsets
+            self.melodyMeasEndOffsets = self.chordMeasEndOffsets
+        else:
+            self.melodyMeasures, self.melodyMeasStartOffsets, self.melodyMeasEndOffsets = (
+                self.computeMeasureLists(self.melody)
+            )
+
+        self.chordMeasIdx = 0
+        self.melodyMeasIdx = 0
+
+        self.cList = list(
+            self.chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
+        )
+        self.cStartOffsetList = []
+        self.cEndOffsetList = []
+        for c in self.cList:
+            startOffset: OffsetQL = c.getOffsetInHierarchy(self.chords)
+            endOffset: OffsetQL = startOffset + c.quarterLength
+            self.cStartOffsetList.append(startOffset)
+            self.cEndOffsetList.append(endOffset)
         self.cNextIdx = 0
-        self.mList = list(self.melody.recurse().getElementsByClass(m21.note.GeneralNote))
+
+        self.mList = list(
+            self.melody
+            .recurse()
+            .getElementsByClass(m21.note.GeneralNote)
+            .getElementsNotOfClass(m21.harmony.ChordSymbol)
+        )
+        self.mStartOffsetList = []
+        self.mEndOffsetList = []
+        for m in self.mList:
+            startOffset = m.getOffsetInHierarchy(self.chords)
+            endOffset = startOffset + m.quarterLength
+            self.mStartOffsetList.append(startOffset)
+            self.mEndOffsetList.append(endOffset)
         self.mNextIdx = 0
+
         self.lookAheadNote = self.getNextNote(throughLookAhead=False)
         self.lookAheadChord = self.getNextChord(throughLookAhead=False)
         return self
@@ -530,12 +620,40 @@ class HarmonyIterator:
         self.currRange = nextRange
         return self.currRange
 
+    def bumpMelodyMeasure(self, mIndex: int):
+        startOffset: OffsetQL = self.mStartOffsetList[mIndex]
+        endOffset: OffsetQL = self.mEndOffsetList[mIndex]
+
+        # find the melodyMeasure that contains both of these offsets.  Start at
+        # self.melodyMeasIdx (ignore previous measures), and update self.melodyMeasIdx
+        # to point to it.
+        for idx in range(self.melodyMeasIdx, len(self.melodyMeasures)):
+            if self.melodyMeasStartOffsets[idx] <= startOffset <= self.melodyMeasEndOffsets[idx]:
+                if self.melodyMeasStartOffsets[idx] <= endOffset <= self.melodyMeasEndOffsets[idx]:
+                    self.melodyMeasIdx = idx
+                    return
+        raise MusicEngineException('could not bump melody measure')
+
+    def bumpChordMeasure(self, cIndex: int):
+        startOffset: OffsetQL = self.cStartOffsetList[cIndex]
+        endOffset: OffsetQL = self.cEndOffsetList[cIndex]
+        # find the chordMeasure that contains both of these offsets.  Start at
+        # self.chordMeasIdx (ignore previous measures), and update self.chordMeasIdx
+        # to point to it.
+        for idx in range(self.chordMeasIdx, len(self.chordMeasures)):
+            if self.chordMeasStartOffsets[idx] <= startOffset <= self.chordMeasEndOffsets[idx]:
+                if self.chordMeasStartOffsets[idx] <= endOffset <= self.chordMeasEndOffsets[idx]:
+                    self.chordMeasIdx = idx
+                    return
+        raise MusicEngineException('could not bump chord measure')
+
     def getNextNote(self, throughLookAhead: bool = True) -> m21.note.GeneralNote | None:
         output: m21.note.GeneralNote | None = None
         if throughLookAhead:
             # normal call (from the outside); return what's in the lookahead, and
-            # repopulate it.
+            # repopulate it, and bump the melodyMeas if necessary.
             output = self.lookAheadNote
+            self.bumpMelodyMeasure(self.mNextIdx - 1)  # index of lookAheadNote/output
             self.lookAheadNote = self.getNextNote(throughLookAhead=False)
             return output
 
@@ -563,8 +681,9 @@ class HarmonyIterator:
         output: m21.harmony.ChordSymbol | None = None
         if throughLookAhead:
             # normal call (from the outside); return what's in the lookahead, and
-            # repopulate it.
+            # repopulate it, and bump the chordMeas if necessary.
             output = self.lookAheadChord
+            self.bumpChordMeasure(self.cNextIdx - 1)  # index of lookAheadChord/output
             self.lookAheadChord = self.getNextChord(throughLookAhead=False)
             return output
 
@@ -613,7 +732,17 @@ class HarmonyIterator:
                         firstNoteQL, firstChordQL
                     )
                     self.currRange = HarmonyRange(
-                        opFrac(0), lowestEndOffset, firstChord, firstNote
+                        opFrac(0), lowestEndOffset, firstChord, firstNote,
+                        self.chordMeasures[self.chordMeasIdx],
+                        self.melodyMeasures[self.melodyMeasIdx],
+                        opFrac(
+                            opFrac(0)
+                            - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                        ),
+                        opFrac(
+                            opFrac(0)
+                            - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                        )
                     )
                     self.currChordEnd = firstChordQL
                     self.currNoteEnd = firstNoteQL
@@ -624,7 +753,17 @@ class HarmonyIterator:
                 # harmony is [0..min(firstChordStart,firstNoteEnd], with no chord
                 lowestOffset: OffsetQL = min(firstChordOffset, firstNoteQL)
                 self.currRange = HarmonyRange(
-                    opFrac(0), lowestOffset, None, firstNote
+                    opFrac(0), lowestOffset, None, firstNote,
+                    self.chordMeasures[self.chordMeasIdx],
+                    self.melodyMeasures[self.melodyMeasIdx],
+                    opFrac(
+                        opFrac(0)
+                        - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                    ),
+                    opFrac(
+                        opFrac(0)
+                        - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                    )
                 )
                 self.currChordEnd = firstChordQL
                 self.currNoteEnd = firstNoteQL
@@ -637,7 +776,17 @@ class HarmonyIterator:
                 # (this seems unlikely, since firstNote would normally be a rest
                 # in this case, but we handle it anyway)
                 self.currRange = HarmonyRange(
-                    opFrac(0), firstNoteOffset, firstChord, None
+                    opFrac(0), firstNoteOffset, firstChord, None,
+                    self.chordMeasures[self.chordMeasIdx],
+                    self.melodyMeasures[self.melodyMeasIdx],
+                    opFrac(
+                        opFrac(0)
+                        - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                    ),
+                    opFrac(
+                        opFrac(0)
+                        - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                    )
                 )
                 self.currChordEnd = firstChordQL
                 self.currNoteEnd = firstNoteQL
@@ -650,7 +799,17 @@ class HarmonyIterator:
                 firstNoteOffset, firstChordOffset
             )
             self.currRange = HarmonyRange(
-                opFrac(0), lowestOffset, None, None
+                opFrac(0), lowestOffset, None, None,
+                self.chordMeasures[self.chordMeasIdx],
+                self.melodyMeasures[self.melodyMeasIdx],
+                opFrac(
+                    opFrac(0)
+                    - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                ),
+                opFrac(
+                    opFrac(0)
+                    - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                )
             )
             self.currChordEnd = firstChordQL
             self.currNoteEnd = firstNoteQL
@@ -674,7 +833,7 @@ class HarmonyIterator:
         prevChord: m21.harmony.ChordSymbol | None = self.currRange._chord
         prevChordEnd: OffsetQL = self.currChordEnd
 
-        prevNote: m21.note.GeneralNote | None = self.currRange._gNote
+        prevNote: m21.note.GeneralNote | None = self.currRange._melodyNote
         prevNoteEnd: OffsetQL = self.currNoteEnd
 
         newChordStart: OffsetQL = MAX_OFFSETQL
@@ -722,7 +881,17 @@ class HarmonyIterator:
                 # harmony is [prevEnd..lowestNewEnd] with newChord? and newNote?
                 lowestNewEnd: OffsetQL = min(newChordEnd, newNoteEnd)
                 self.currRange = HarmonyRange(
-                    prevEnd, lowestNewEnd, newChord, newNote
+                    prevEnd, lowestNewEnd, newChord, newNote,
+                    self.chordMeasures[self.chordMeasIdx],
+                    self.melodyMeasures[self.melodyMeasIdx],
+                    opFrac(
+                        prevEnd
+                        - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                    ),
+                    opFrac(
+                        prevEnd
+                        - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                    )
                 )
                 self.currChordEnd = newChordEnd
                 self.currNoteEnd = newNoteEnd
@@ -737,7 +906,19 @@ class HarmonyIterator:
                 # if prevNote is not None, there are overlapping notes here.
                 assert prevNote is None and newNote is not None
                 lowestOffset = min(newChordEnd, newNoteEnd)
-                self.currRange = HarmonyRange(prevEnd, lowestOffset, newChord, newNote)
+                self.currRange = HarmonyRange(
+                    prevEnd, lowestOffset, newChord, newNote,
+                    self.chordMeasures[self.chordMeasIdx],
+                    self.melodyMeasures[self.melodyMeasIdx],
+                    opFrac(
+                        prevEnd
+                        - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                    ),
+                    opFrac(
+                        prevEnd
+                        - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                    )
+                )
                 self.currChordEnd = newChordEnd
                 self.currNoteEnd = newNoteEnd
                 return self.currRange
@@ -747,7 +928,19 @@ class HarmonyIterator:
             # middle of a melody note (or in the middle of no note at all).
             # harmony is [prevEnd..lowestNewEnd] with newChord? and prevNote?
             lowestNewEnd = min(newChordEnd, prevNoteEnd)
-            self.currRange = HarmonyRange(prevEnd, lowestNewEnd, newChord, prevNote)
+            self.currRange = HarmonyRange(
+                prevEnd, lowestNewEnd, newChord, prevNote,
+                self.chordMeasures[self.chordMeasIdx],
+                self.melodyMeasures[self.melodyMeasIdx],
+                opFrac(
+                    prevEnd
+                    - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                ),
+                opFrac(
+                    prevEnd
+                    - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                )
+            )
             self.currChordEnd = newChordEnd
             self.currNoteEnd = prevNoteEnd
             return self.currRange
@@ -760,7 +953,19 @@ class HarmonyIterator:
                 # We need to start a new note (if there is one), and the next chord.
                 # harmony is [prevEnd..lowestOffset] with newChord and newNote?
                 lowestOffset = min(newChordEnd, newNoteEnd)
-                self.currRange = HarmonyRange(prevEnd, lowestOffset, newChord, newNote)
+                self.currRange = HarmonyRange(
+                    prevEnd, lowestOffset, newChord, newNote,
+                    self.chordMeasures[self.chordMeasIdx],
+                    self.melodyMeasures[self.melodyMeasIdx],
+                    opFrac(
+                        prevEnd
+                        - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                    ),
+                    opFrac(
+                        prevEnd
+                        - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                    )
+                )
                 self.currChordEnd = newChordEnd
                 self.currNoteEnd = newNoteEnd
                 return self.currRange
@@ -771,7 +976,19 @@ class HarmonyIterator:
             # harmony is [prevEnd..lowestNewEnd] with prevChord? and newNote?
             assert prevNote is not None
             lowestNewEnd = min(prevChordEnd, newNoteEnd)
-            self.currRange = HarmonyRange(prevEnd, lowestNewEnd, prevChord, newNote)
+            self.currRange = HarmonyRange(
+                prevEnd, lowestNewEnd, prevChord, newNote,
+                self.chordMeasures[self.chordMeasIdx],
+                self.melodyMeasures[self.melodyMeasIdx],
+                opFrac(
+                    prevEnd
+                    - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                ),
+                opFrac(
+                    prevEnd
+                    - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                )
+            )
             self.currChordEnd = prevChordEnd
             self.currNoteEnd = newNoteEnd
             return self.currRange
@@ -784,7 +1001,19 @@ class HarmonyIterator:
                 # harmony is [prevEnd..lowestNewEnd] with new chord and new note
                 assert prevNote is None and prevChord is None
                 lowestNewEnd = min(newChordEnd, newNoteEnd)
-                self.currRange = HarmonyRange(prevEnd, lowestNewEnd, newChord, newNote)
+                self.currRange = HarmonyRange(
+                    prevEnd, lowestNewEnd, newChord, newNote,
+                    self.chordMeasures[self.chordMeasIdx],
+                    self.melodyMeasures[self.melodyMeasIdx],
+                    opFrac(
+                        prevEnd
+                        - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                    ),
+                    opFrac(
+                        prevEnd
+                        - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                    )
+                )
                 self.currChordEnd = newChordEnd
                 self.currNoteEnd = newNoteEnd
                 return self.currRange
@@ -794,7 +1023,19 @@ class HarmonyIterator:
             # harmony is [prevEnd..lowestNewEnd] with newChord and prevNote (which may be None).
             assert prevChord is None
             lowestNewEnd = min(newChordEnd, prevNoteEnd)
-            self.currRange = HarmonyRange(prevEnd, lowestNewEnd, newChord, prevNote)
+            self.currRange = HarmonyRange(
+                prevEnd, lowestNewEnd, newChord, prevNote,
+                self.chordMeasures[self.chordMeasIdx],
+                self.melodyMeasures[self.melodyMeasIdx],
+                opFrac(
+                    prevEnd
+                    - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                ),
+                opFrac(
+                    prevEnd
+                    - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                )
+            )
             self.currChordEnd = newChordEnd
             self.currNoteEnd = prevNoteEnd
             return self.currRange
@@ -806,7 +1047,19 @@ class HarmonyIterator:
             # new chord).  This is a new note in the middle of a chord (and prevNote is None).
             # harmony is [prevEnd..newNoteEnd] with prevChord (which may be None) and newNote.
             assert prevNote is None
-            self.currRange = HarmonyRange(prevEnd, newNoteEnd, prevChord, newNote)
+            self.currRange = HarmonyRange(
+                prevEnd, newNoteEnd, prevChord, newNote,
+                self.chordMeasures[self.chordMeasIdx],
+                self.melodyMeasures[self.melodyMeasIdx],
+                opFrac(
+                    prevEnd
+                    - self.chords.elementOffset(self.chordMeasures[self.chordMeasIdx])
+                ),
+                opFrac(
+                    prevEnd
+                    - self.melody.elementOffset(self.melodyMeasures[self.melodyMeasIdx])
+                )
+            )
             self.currChordEnd = prevChordEnd
             self.currNoteEnd = newNoteEnd
             return self.currRange
@@ -1889,7 +2142,7 @@ class MusicEngine:
         hr: HarmonyRange,
     ) -> m21.harmony.ChordSymbol | None:
         # if hr._chord is still in the melody (hasn't been replaced by several chords)
-        if hr._chord is not None and hr._chord.activeSite is not None:
+        if hr._chord is None or hr._chord.activeSite is not None:
             return hr._chord
 
         csList: list[m21.harmony.ChordSymbol] = (
@@ -1916,10 +2169,10 @@ class MusicEngine:
             includeElementsThatEndAtStart = True
 
         csList: list[m21.harmony.ChordSymbol] = list(
-            chords.recurse()
+            hr.chordMeas.recurse()
             .getElementsByOffsetInHierarchy(
-                hr.startOffset,
-                hr.endOffset,
+                hr.startOffsetInChordMeas,
+                hr.endOffsetInChordMeas,
                 includeEndBoundary=includeEndBoundary,
                 mustFinishInSpan=False,
                 mustBeginInSpan=False,
@@ -1934,10 +2187,10 @@ class MusicEngine:
         melody: m21.stream.Part,
         hr: HarmonyRange,
     ) -> m21.note.GeneralNote | None:
-        # if hr._gNote is still in the melody (hasn't been replaced by several notes)
-        # Currently, this is always true.
-        if hr._gNote is not None and hr._gNote.activeSite is not None:
-            return hr._gNote
+        # if hr._melodyNote is still in the melody (hasn't been replaced by several notes)
+        # Currently, this is always true (or hr._melodyNote is None, which is just as good).
+        if hr._melodyNote is None or hr._melodyNote.activeSite is not None:
+            return hr._melodyNote
 
         includeEndBoundary: bool = False
         includeElementsThatEndAtStart: bool = False
@@ -1948,10 +2201,10 @@ class MusicEngine:
             includeElementsThatEndAtStart = True
 
         noteList: list[m21.note.Note] = list(
-            melody.recurse()
+            hr.melodyMeas.recurse()
             .getElementsByOffsetInHierarchy(
-                hr.startOffset,
-                hr.endOffset,
+                hr.startOffsetInMelodyMeas,
+                hr.endOffsetInMelodyMeas,
                 includeEndBoundary=includeEndBoundary,
                 mustFinishInSpan=False,
                 mustBeginInSpan=False,
@@ -2141,7 +2394,7 @@ class MusicEngine:
                 raise MusicEngineException('hr.chord not in hr.chords')
             mVoice = melody.containerInHierarchy(melodyNote, setActiveSite=False)
             if mVoice is None:
-                raise MusicEngineException('hr.gNote not in hr.melody')
+                raise MusicEngineException('hr.melodyNote not in hr.melody')
 
             if cVoice.getOffsetInHierarchy(chords) != mVoice.getOffsetInHierarchy(melody):
                 raise MusicEngineException('mismatched chords v melody voice offsets')
@@ -2682,8 +2935,8 @@ class MusicEngine:
             # in mMeas.recurse(). Just one of each type though.
             sigs: list[m21.key.KeySignature | m21.meter.TimeSignature] = list(
                 mMeas.recurse()
-                .getElementsByClass([m21.key.KeySignature, m21.meter.TimeSignature])
                 .getElementsByOffsetInHierarchy(0.0)
+                .getElementsByClass([m21.key.KeySignature, m21.meter.TimeSignature])
             )
 
             timeSigFound: bool = False
@@ -2826,7 +3079,7 @@ class MusicEngine:
                 melody.containerInHierarchy(melodyNote, setActiveSite=False)
             )
             if mVoice is None:
-                raise MusicEngineException('hr.gNote not in hr.melody')
+                raise MusicEngineException('hr.melodyNote not in hr.melody')
 
             mContainer: m21.stream.Stream | None = mVoice
             if not isinstance(mContainer, m21.stream.Measure):
@@ -2943,12 +3196,12 @@ class MusicEngine:
             if leadPitchName not in chordPitchNames:
                 # lead is not on a pillar chord note, fill in bass/tenor/bari with
                 # spaces (invisible rests).
-                raise MusicEngineException('lead note not in chord; should never happen')
-                # space = m21.note.Rest()
-                # space.quarterLength = harmonyQL
-                # space.style.hideObjectOnPrint = True
-                # currVoices[partName].insert(harmonyOffsetInVoice, space)
-                # continue
+                # raise MusicEngineException('lead note not in chord; should never happen')
+                space = m21.note.Rest()
+                space.quarterLength = harmonyQL
+                space.style.hideObjectOnPrint = True
+                currVoices[partName].insert(harmonyOffsetInVoice, space)
+                continue
 
             # Lead has a pillar chord note.  Fill in the <partName> note
             # (potentially adjusting other non-lead notes to improve
