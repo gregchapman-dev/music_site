@@ -1,10 +1,10 @@
 # ------------------------------------------------------------------------------
 # Name:          setup.py
-# Purpose:       install converter21 package
+# Purpose:       install music_site package
 #
 # Authors:       Greg Chapman
 #
-# Copyright:     (c) 2021-2023 Greg Chapman
+# Copyright:     (c) 2024 Greg Chapman
 # License:       MIT, see LICENSE
 # ------------------------------------------------------------------------------
 
@@ -33,5 +33,6 @@ if __name__ == '__main__':
 
         install_requires=[
             'music21>=9.1',
+            'converter21>=3.1.1'
         ]
     )
