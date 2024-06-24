@@ -92,6 +92,7 @@ def produceResultScores(m21Score: m21.stream.Score) -> dict[str, str]:
     print('done producing Humdrum')
     print('producing MEI')
     mei: str = MusicEngine.toMei(m21Score)
+    print('done producing MEI')
     return {
         'musicxml': musicXML,
         'humdrum': humdrum,

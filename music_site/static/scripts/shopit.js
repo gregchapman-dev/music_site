@@ -11,8 +11,10 @@
         let svg = tk.renderData(gScoreMei, {});
         document.getElementById("notation").innerHTML = svg;
 
-        // 3. We insert it as a data URL in the download anchor tag.
-        await replaceDataUrl(downloadAnchorTag, gScoreMusicXml);
+        // 3. We insert them as data URLs in the download anchor tags.
+        await replaceDataUrl(downloadMusicXMLTag, gScoreMusicXml, 'Shopped.musicxml');
+        await replaceDataUrl(downloadHumdrumTag, gScoreHumdrum, 'Shopped.krn');
+        await replaceDataUrl(downloadMEITag, gScoreMei, 'Shopped.mei');
     }
 
     function transpose() {
@@ -61,8 +63,8 @@
         });
     }
 
-    async function replaceDataUrl(anchorTag, text) {
-        anchorTag.download = "Shopped.musicxml";
+    async function replaceDataUrl(anchorTag, text, name) {
+        anchorTag.download = name;
         anchorTag.href = await bytesToBase64DataUrl(text);
     }
 
@@ -117,7 +119,9 @@
     const transposeBtn = document.querySelector('#transpose');
     const shopItUpperBtn = document.querySelector('#shopItUpper');
     const shopItLowerBtn = document.querySelector('#shopItLower');
-    const downloadAnchorTag = document.querySelector('#downloadAnchor');
+    const downloadMusicXMLTag = document.querySelector('#downloadAnchorMusicXML');
+    const downloadHumdrumTag = document.querySelector('#downloadAnchorHumdrum');
+    const downloadMEITag = document.querySelector('#downloadAnchorMEI');
     const fileElem = document.querySelector("#fileElem");
     fileElem.addEventListener("change", handleFiles, false);
     const fileSelect = document.querySelector("#fileSelect");
