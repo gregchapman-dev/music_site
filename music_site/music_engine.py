@@ -1395,6 +1395,10 @@ class MusicEngine:
 
         newPitchNames: list[PitchName] = [PitchName(p.name) for p in newChord.pitches]
         if leadPitchName in newPitchNames:
+            if not newChord.chordStepModifications:
+                newChord.chordKindStr = m21.harmony.getCurrentAbbreviationFor(kind)
+                if newChord.chordKindStr == 'sus':
+                    newChord.chordKindStr = 'sus4'
             return newChord
         return None
 
@@ -1610,10 +1614,15 @@ class MusicEngine:
                         option1a.addChordStepModification(
                             m21.harmony.ChordStepModification('add', 7, -1)
                         )
+                        if not origChord.chordStepModifications:
+                            option1a.chordKindStr = '7sus4'
                     else:
                         option1a.addChordStepModification(
                             m21.harmony.ChordStepModification('add', 7)
                         )
+                        if not origChord.chordStepModifications:
+                            option1a.chordKindStr = 'maj7sus4'
+
         elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '#4', origChord):
             if origChord.chordKind == 'major-sixth':
                 # a major sixth with an augmented fourth instead of a fifth is
