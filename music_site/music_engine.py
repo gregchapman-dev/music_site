@@ -585,7 +585,7 @@ class HarmonyIterator:
         self.cEndOffsetList = []
         for c in self.cList:
             startOffset: OffsetQL = c.getOffsetInHierarchy(self.chords)
-            endOffset: OffsetQL = startOffset + c.quarterLength
+            endOffset: OffsetQL = opFrac(startOffset + c.quarterLength)
             self.cStartOffsetList.append(startOffset)
             self.cEndOffsetList.append(endOffset)
         self.cNextIdx = 0
@@ -599,8 +599,8 @@ class HarmonyIterator:
         self.mStartOffsetList = []
         self.mEndOffsetList = []
         for m in self.mList:
-            startOffset = m.getOffsetInHierarchy(self.chords)
-            endOffset = startOffset + m.quarterLength
+            startOffset = m.getOffsetInHierarchy(self.melody)
+            endOffset = opFrac(startOffset + m.quarterLength)
             self.mStartOffsetList.append(startOffset)
             self.mEndOffsetList.append(endOffset)
         self.mNextIdx = 0
