@@ -2378,7 +2378,8 @@ class MusicEngine:
     @staticmethod
     def addChordOptionsForNonPillarNotes(melody: m21.stream.Part, chords: m21.stream.Part):
         hr: HarmonyRange
-        for hr in HarmonyIterator(chords, melody):
+        hiter: HarmonyIterator = HarmonyIterator(chords, melody)
+        for hr in hiter:
             chordSym: m21.harmony.ChordSymbol | None = (
                 MusicEngine.getChordSymbolInHarmonyRange(chords, hr)
             )
@@ -2387,6 +2388,7 @@ class MusicEngine:
             )
             cVoice: m21.stream.Stream | None = None
             mVoice: m21.stream.Stream | None = None
+            mMeas: m21.stream.Stream | None = None
 
             if not isinstance(melodyNote, m21.note.Note):
                 # skipping Rests, Unpitcheds (there will be no Chords, we already rejected
@@ -2408,6 +2410,11 @@ class MusicEngine:
             if cVoice.getOffsetInHierarchy(chords) != mVoice.getOffsetInHierarchy(melody):
                 raise MusicEngineException('mismatched chords v melody voice offsets')
 
+            if isinstance(mVoice, m21.stream.Measure):
+                mMeas = mVoice
+            elif isinstance(mVoice, m21.stream.Voice):
+                mMeas = melody.containerInHierarchy(mVoice, setActiveSite=False)
+
             # We need to see if melodyNote is in the chordsym, and if not, come up with
             # alternate chordsym options.
 
@@ -2420,11 +2427,43 @@ class MusicEngine:
                 ).values()
             )
 
+            options: list[m21.harmony.ChordSymbol] = []
+
+            # whether or not melodyNote is in the chord, check for syncopated (early) melody
+            # note and add the syncopated (early) next chord as an option in that case.
+            if (mMeas is not None
+                    and melodyNote.quarterLength <= 0.5
+                    and melodyNote.tie is not None
+                    and melodyNote.tie.type in ('start', 'continue')):
+                # melody note is eighth note or smaller, tied to next note
+                melodyNoteEndQL: OffsetQL = opFrac(
+                    melodyNote.getOffsetInHierarchy(mMeas) + melodyNote.quarterLength
+                )
+                if melodyNoteEndQL == mMeas.quarterLength:
+                    # melody note is last note in measure
+                    nextNote: m21.note.GeneralNote | None = hiter.lookAheadNote
+                    if isinstance(nextNote, m21.note.Note):
+                        nextPitchName: PitchName = PitchName(nextNote.pitch.name)
+                        if nextPitchName == melodyPitchName:
+                            # melody note is syncopated (early) next note
+                            nextChord: m21.harmony.ChordSymbol | None = hiter.lookAheadChord
+                            if nextChord is not None:
+                                nextChordPitchNames = (
+                                    MusicEngine.getChordVocalParts(
+                                        Chord(nextChord),
+                                        melodyPitchName
+                                    ).values()
+                                )
+                                if melodyPitchName in nextChordPitchNames:
+                                    # best option (0) is syncopated (early) next chord
+                                    options.insert(0, deepcopy(nextChord))
+
             if melodyPitchName not in chordPitchNames:
-                options: list[m21.harmony.ChordSymbol] = (
+                options.extend(
                     MusicEngine.getNonPillarChordOptions(melodyPitchName, chordSym)
                 )
 
+            if options:
                 chosenIdx: int = 0
                 chosenOption = options[chosenIdx]
                 # We need a place to store options for a subrange of the melodyNote
