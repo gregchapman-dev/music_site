@@ -1510,7 +1510,7 @@ class MusicEngine:
         option8: m21.harmony.ChordSymbol | None = None
 
         # 1. Extended chord: if lead is on 6, -7, or 9, just add that to the existing chord
-
+        chordKindSet: bool = False
         # try adding 6th (or 13th)
         if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '6', origChord):
             if origChord.chordKind == 'major':
@@ -1525,6 +1525,7 @@ class MusicEngine:
                 option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 6)
                 if option1 is not None:
                     option1.chordKindStr = 'maj69'
+                    chordKindSet = True
             elif origChord.chordKind == 'major-11th':
                 option1 = MusicEngine.tryChord(leadPitchName, origChord, 'major-13th')
             elif origChord.chordKind == 'dominant-11th':
@@ -1569,8 +1570,15 @@ class MusicEngine:
                 option1 = MusicEngine.tryAddingDegree(leadPitchName, origChord, 9)
 
         if option1 is not None:
+            if not chordKindSet:
+                option1.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option1.findFigure(), removeRootName=True
+                    )
+                )
             allOptions.append(option1)
 
+        chordKindSet = False
         # Greg's new option1a: unsuspend fourth (to major or minor third) if orig is sus4 or 7sus4
         # or suspend fourth if orig has major or minor third, or let the lead take aug4 in a maj6
         # chord (which is actually a half-diminished-seventh a tritone above)
@@ -1589,6 +1597,7 @@ class MusicEngine:
                     # minor or major with add b7, which can be simplified to
                     # 'minor-seventh' or 'dominant-seventh'
                     MusicEngine.simplifyChordSymbol(option1a)
+
             elif origChord.chordKind == 'suspended-fourth-seventh':
                 if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '3', origChord):
                     option1a = MusicEngine.tryChord(
@@ -1598,6 +1607,7 @@ class MusicEngine:
                     option1a = MusicEngine.tryChord(
                         leadPitchName, origChord, 'minor-seventh', keepCSMs=True
                     )
+
         elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '4', origChord):
             if origChord.chordKind in ('major', 'minor'):
                 option1a = MusicEngine.tryChord(
@@ -1616,12 +1626,15 @@ class MusicEngine:
                         )
                         if not origChord.chordStepModifications:
                             option1a.chordKindStr = '7sus4'
+                            chordKindSet = True
+
                     else:
                         option1a.addChordStepModification(
                             m21.harmony.ChordStepModification('add', 7)
                         )
                         if not origChord.chordStepModifications:
                             option1a.chordKindStr = 'maj7sus4'
+                            chordKindSet = True
 
         elif MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '#4', origChord):
             if origChord.chordKind == 'major-sixth':
@@ -1633,13 +1646,26 @@ class MusicEngine:
                 )
 
         if option1a is not None:
+            if not chordKindSet:
+                option1a.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option1a.findFigure(), removeRootName=True
+                    )
+                )
             allOptions.append(option1a)
+
+        chordKindSet = False
 
         # 2. 7th chord with root 5th above original
         if MusicEngine.pitchCanBeDegreeOfChord(
                 leadPitchName, ('1', '3', '5', '-7'), origChord, 7):
             option2 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 7)
             if option2 is not None:
+                option2.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option2.findFigure(), removeRootName=True
+                    )
+                )
                 allOptions.append(option2)
 
         # 3. 7th chord with root 5th below original
@@ -1647,6 +1673,11 @@ class MusicEngine:
                 leadPitchName, ('1', '3', '5', '-7'), origChord, -7):
             option3 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -7)
             if option3 is not None:
+                option3.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option3.findFigure(), removeRootName=True
+                    )
+                )
                 allOptions.append(option3)
 
         # 4. 7th chord with root semitone below original
@@ -1654,6 +1685,11 @@ class MusicEngine:
                 leadPitchName, ('1', '3', '5', '-7'), origChord, -1):
             option4 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', -1)
             if option4 is not None:
+                option4.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option4.findFigure(), removeRootName=True
+                    )
+                )
                 allOptions.append(option4)
 
         # 5. 7th chord with root semitone above original
@@ -1661,6 +1697,11 @@ class MusicEngine:
                 leadPitchName, ('1', '3', '5', '-7'), origChord, 1):
             option5 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 1)
             if option5 is not None:
+                option5.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option5.findFigure(), removeRootName=True
+                    )
+                )
                 allOptions.append(option5)
 
         # 6. 7th chord with root tritone above/below original
@@ -1668,6 +1709,11 @@ class MusicEngine:
                 leadPitchName, ('1', '3', '5', '-7'), origChord, 6):
             option6 = MusicEngine.tryChord(leadPitchName, origChord, 'dominant-seventh', 6)
             if option6 is not None:
+                option6.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option6.findFigure(), removeRootName=True
+                    )
+                )
                 allOptions.append(option6)
 
         # 7. dim7th chord on original root
@@ -1675,6 +1721,11 @@ class MusicEngine:
                 leadPitchName, ('1', '-3', '-5', '--7'), origChord):
             option7 = MusicEngine.tryChord(leadPitchName, origChord, 'diminished-seventh')
             if option7 is not None:
+                option7.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option7.findFigure(), removeRootName=True
+                    )
+                )
                 allOptions.append(option7)
 
         # 8. minor 7th chord with root 5th above original
@@ -1682,6 +1733,11 @@ class MusicEngine:
                 leadPitchName, ('1', '-3', '5', '-7'), origChord):
             option8 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-seventh', 7)
             if option8 is not None:
+                option8.chordKindStr = (
+                    M21Utilities.convertChordSymbolFigureToPrintableText(
+                        option8.findFigure(), removeRootName=True
+                    )
+                )
                 allOptions.append(option8)
 
         if not allOptions:
