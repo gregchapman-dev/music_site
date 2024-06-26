@@ -1402,57 +1402,6 @@ class MusicEngine:
             return newChord
         return None
 
-    @staticmethod
-    def simplifyChordSymbol(cs: m21.harmony.ChordSymbol):
-        csms: list[m21.harmony.ChordStepModification] = cs.getChordStepModifications()
-        if not csms:
-            return
-
-        csWasModified: bool = False
-        if len(csms) == 1 and cs.chordKind in ('major', 'minor', 'augmented', 'diminished'):
-            csm: m21.harmony.ChordStepModification = csms[0]
-            if csm.degree == 7:
-                if cs.chordKind == 'major':
-                    if csm.interval.semitones == 0:
-                        cs.chordKind = 'major-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-                    elif csm.interval.semitones == -1:
-                        cs.chordKind = 'dominant-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-                elif cs.chordKind == 'minor':
-                    if csm.interval.semitones == 0:
-                        cs.chordKind = 'minor-major-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-                    elif csm.interval.semitones == -1:
-                        cs.chordKind = 'minor-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-                elif cs.chordKind == 'augmented':
-                    if csm.interval.semitones == 0:
-                        cs.chordKind = 'augmented-major-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-                    elif csm.interval.semitones == -1:
-                        cs.chordKind = 'augmented-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-                elif cs.chordKind == 'diminished':
-                    if csm.interval.semitones == -1:
-                        cs.chordKind = 'half-diminished-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-                    elif csm.interval.semitones == -2:
-                        cs.chordKind = 'diminished-seventh'
-                        cs.chordKindStr = ''
-                        csWasModified = True
-
-            if csWasModified:
-                cs.chordStepModifications = []
-                cs.figure = None  # next get will update it
-
     CHORD_DEGREE_TO_ROOT_ALTER: dict[str, int] = {
         '1': 0,
         '2': 2,
@@ -1573,7 +1522,7 @@ class MusicEngine:
             if not chordKindSet:
                 option1.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option1.findFigure(), removeRootName=True
+                        option1.findFigure(), removeNoteNames=True
                     )
                 )
             allOptions.append(option1)
@@ -1596,7 +1545,7 @@ class MusicEngine:
                     # e.g. if it was suspended-fourth with add b7, now it is
                     # minor or major with add b7, which can be simplified to
                     # 'minor-seventh' or 'dominant-seventh'
-                    MusicEngine.simplifyChordSymbol(option1a)
+                    M21Utilities.simplifyChordSymbol(option1a)
 
             elif origChord.chordKind == 'suspended-fourth-seventh':
                 if MusicEngine.pitchCanBeDegreeOfChord(leadPitchName, '3', origChord):
@@ -1649,7 +1598,7 @@ class MusicEngine:
             if not chordKindSet:
                 option1a.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option1a.findFigure(), removeRootName=True
+                        option1a.findFigure(), removeNoteNames=True
                     )
                 )
             allOptions.append(option1a)
@@ -1663,7 +1612,7 @@ class MusicEngine:
             if option2 is not None:
                 option2.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option2.findFigure(), removeRootName=True
+                        option2.findFigure(), removeNoteNames=True
                     )
                 )
                 allOptions.append(option2)
@@ -1675,7 +1624,7 @@ class MusicEngine:
             if option3 is not None:
                 option3.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option3.findFigure(), removeRootName=True
+                        option3.findFigure(), removeNoteNames=True
                     )
                 )
                 allOptions.append(option3)
@@ -1687,7 +1636,7 @@ class MusicEngine:
             if option4 is not None:
                 option4.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option4.findFigure(), removeRootName=True
+                        option4.findFigure(), removeNoteNames=True
                     )
                 )
                 allOptions.append(option4)
@@ -1699,7 +1648,7 @@ class MusicEngine:
             if option5 is not None:
                 option5.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option5.findFigure(), removeRootName=True
+                        option5.findFigure(), removeNoteNames=True
                     )
                 )
                 allOptions.append(option5)
@@ -1711,7 +1660,7 @@ class MusicEngine:
             if option6 is not None:
                 option6.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option6.findFigure(), removeRootName=True
+                        option6.findFigure(), removeNoteNames=True
                     )
                 )
                 allOptions.append(option6)
@@ -1723,7 +1672,7 @@ class MusicEngine:
             if option7 is not None:
                 option7.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option7.findFigure(), removeRootName=True
+                        option7.findFigure(), removeNoteNames=True
                     )
                 )
                 allOptions.append(option7)
@@ -1735,7 +1684,7 @@ class MusicEngine:
             if option8 is not None:
                 option8.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
-                        option8.findFigure(), removeRootName=True
+                        option8.findFigure(), removeNoteNames=True
                     )
                 )
                 allOptions.append(option8)
