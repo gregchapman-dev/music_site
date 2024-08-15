@@ -1679,7 +1679,7 @@ class MusicEngine:
 
         # 8. minor 7th chord with root 5th above original
         if MusicEngine.pitchCanBeDegreeOfChord(
-                leadPitchName, ('1', '-3', '5', '-7'), origChord):
+                leadPitchName, ('1', '-3', '5', '-7'), origChord, 7):
             option8 = MusicEngine.tryChord(leadPitchName, origChord, 'minor-seventh', 7)
             if option8 is not None:
                 option8.chordKindStr = (
@@ -2013,8 +2013,6 @@ class MusicEngine:
         # of extending a chordsym duration beyond the end-of-measure, will extend
         # to end of measure, and then insert a copy of the chordsym into the start
         # of the next measure, with the remainder of the duration.
-        # We make the simplifying assumption (for now) that any given ChordSymbol
-        # will only cross one barline.
         # This routine also handles simultaneous chords, giving them the same duration
         # (lasting until the next non-simultaneous chord).
 
@@ -2850,7 +2848,7 @@ class MusicEngine:
         # a different note (that hasn't yet had its accidental computed).
         MusicEngine.makeAccidentals(shoppedVoices)
 
-        # Time to remove the placeholder rests we added earlier to all the measures in bbPart
+        # Time to remove the placeholder rests we added earlier to all the measures in bbStaff
         # (in MusicEngine.processPillarChordsLead).
         bbStaff: m21.stream.Part
         for staff in shopped[m21.stream.Part]:
@@ -4414,38 +4412,6 @@ class MusicEngine:
 #                     )
 
         return melodyPart, chordPart
-
-    @staticmethod
-    def setClefs(score: m21.stream.Score, arrangementType: ArrangementType):
-        # insert (or change) clefs to be appropriate for the arrangementType.
-        # No fixing of notes, though; fixClefs is for that.
-        return
-
-    @staticmethod
-    def adjustVoicingForArrangementType(
-        score: m21.stream.Score,
-        arrangementType: ArrangementType
-    ):
-        return
-
-    @staticmethod
-    def fixClefs(score: m21.stream.Score, arrangementType: ArrangementType):
-        # This is important because there are lots of scores out there that
-        # have some parts in the wrong octave, and everyone just "knows"
-        # how to sing them correctly.  I need the notes to be right, so
-        # I can figure out what to do.
-        if arrangementType == ArrangementType.UpperVoices:
-            # Fix the bass clef if it doesn't have that little 8 above it
-            # (and transpose those notes up an octave so they sound/look
-            # right!).
-            pass
-        elif arrangementType == ArrangementType.LowerVoices:
-            # Fix the treble clef if it doesn't have that little 8 below it
-            # (and transpose those notes down an octave so they sound/look
-            # right!).
-            pass
-        # should we do anything for mixed arrangements?  I should look at some.
-        # Straight SATB is simple, but...
 
     @staticmethod
     def countHarmonyGaps(score: m21.stream.Score) -> int:
