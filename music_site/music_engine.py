@@ -2470,20 +2470,31 @@ class MusicEngine:
                 chosenIdx: int = 0
                 chosenOption = options[chosenIdx]
                 # We need a place to store options for a subrange of the melodyNote
-                # melodyNote.shopit_options_dict[] = options  # type: ignore
+                # melodyNote.shopit_options_list[] = options  # type: ignore
                 # melodyNote.shopit_current_option_index = chosenIdx  # type: ignore
 
-                startOffsetInVoice: OffsetQL = (
+                startOffsetInVoice: OffsetQL = opFrac(
                     hr.startOffset - cVoice.getOffsetInHierarchy(chords)
                 )
+                durQL: OffsetQL = opFrac(hr.endOffset - hr.startOffset)
 
                 MusicEngine.replaceChordSymbolPortion(
                     cVoice,
                     chordSym,
                     chosenOption,
                     startOffsetInVoice,
-                    opFrac(hr.endOffset - hr.startOffset)
+                    durQL
                 )
+
+                # then add all but the chosen one with the same offset,
+                # but as TextExpression, not ChordSymbol.
+                for i, csOption in enumerate(options):
+                    if i == chosenIdx:
+                        continue
+                    csText: str = M21Utilities.convertChordSymbolToText(csOption)
+                    csTextExp = m21.expressions.TextExpression('(' + csText + ')')
+                    csTextExp.placement = 'above'
+                    cVoice.insert(startOffsetInVoice, csTextExp)
 
     @staticmethod
     def replaceChordSymbolPortion(
@@ -2495,7 +2506,7 @@ class MusicEngine:
     ):
         origcsOffset: OffsetQL = origcs.getOffsetInHierarchy(cStream)
         firstOrigcsQL: OffsetQL = opFrac(newcsOffset - origcsOffset)
-        secondOrigcsQL: OffsetQL = opFrac(origcs.quarterLength - (firstOrigcsQL + newcsQL))
+        secondOrigcsQL: OffsetQL = opFrac(origcs.quarterLength - opFrac(firstOrigcsQL + newcsQL))
         secondOrigcsOffset: OffsetQL = opFrac(newcsOffset + newcsQL)
 
         # first, trim the first bit of origCS
@@ -2759,13 +2770,6 @@ class MusicEngine:
         # if numHRs < numNotes or numHRs > numNotes + numChords:
         #     raise MusicEngineException(f'numNotes={numNotes}, numHRs={numHRs}')
 
-        # Any time the melody note is not in the chord, find some options for
-        # better chords, insert one (adjusting other chords' durations as
-        # necessary), and note the others somehow, so the user can choose.
-        # leadSheet.show('musicxml.pdf', makeNotation=False)
-        MusicEngine.addChordOptionsForNonPillarNotes(melody, chords)
-        # leadSheet.show('musicxml.pdf', makeNotation=False)
-
         # remove all beams (because the beams get bogus in the partially filled-in
         # harmony parts, causing occasional export crashes).  We will call
         # m21.stream.makeBeams when necessary, to make valid beams again.
@@ -2810,6 +2814,15 @@ class MusicEngine:
         for ks in allKeySigs:
             if abs(ks.sharps) > 6:
                 raise MusicEngineException(f'bad transposition to key with sharps={ks.sharps}')
+
+        # Any time the melody note is not in the chord, find some options for
+        # better chords, insert one (adjusting other chords' durations as
+        # necessary), and note the others somehow, so the user can choose.
+        # We do this after transposition, because the non-chosen chord options
+        # are put in the score as TextExpressions, which cannot be transposed.
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
+        MusicEngine.addChordOptionsForNonPillarNotes(melody, chords)
+        # leadSheet.show('musicxml.pdf', makeNotation=False)
 
         # First we process the melody into the lead part (creating the entire output
         # score structures as we go, including parts, and measures; inserting
@@ -4308,25 +4321,6 @@ class MusicEngine:
                 return cs  # no deepcopy, this is the ChordSymbol that is in the stream
 
         return None
-
-    @staticmethod
-    def convertLowerVoicesArrangementToUpperVoices(score: m21.stream.Score):
-        score.transpose('P4', inPlace=True)
-        MusicEngine.setClefs(score, ArrangementType.UpperVoices)
-
-        # Walk the score looking for too-high or too-low notes, and revoice
-        # to tighten it up.  e.g. flip tenor and bari (switching octaves),
-        # or revoice to bring the bass up a bit, or whatever.
-        MusicEngine.adjustVoicingForArrangementType(score, ArrangementType.UpperVoices)
-
-    @staticmethod
-    def convertUpperVoicesArrangementToLowerVoices(score: m21.stream.Score):
-        score.transpose('P-4', inPlace=True)
-        MusicEngine.setClefs(score, ArrangementType.LowerVoices)
-
-        # Walk the score looking for opportunities to revoice for (lower) bass roots and
-        # higher tenor notes (flip tenor and bari, switching octaves)
-        MusicEngine.adjustVoicingForArrangementType(score, ArrangementType.LowerVoices)
 
     @staticmethod
     def isFourPartVocalScore(score: m21.stream.Score) -> bool:
