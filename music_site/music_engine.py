@@ -86,7 +86,7 @@ class Chord(Sequence):
         self,
         cs: m21.harmony.ChordSymbol,
     ):
-        self.sym: m21.harmony.ChordSymbol = deepcopy(cs)
+        self.sym: m21.harmony.ChordSymbol = MusicEngine.copyChordSymbol(cs)
         self.pitches: list[m21.pitch.Pitch] = []
         self.roleToPitchNames: dict[int, PitchName] = {}
         self.preferredBassPitchName: PitchName | None = None
@@ -374,7 +374,10 @@ class VocalRangeInfo:
         # well beyond any reasonable vocal range max/min.
         for i, n in enumerate(s[m21.note.Note]):
             if i == 0:
-                self.fullRange = VocalRange(deepcopy(n.pitch), deepcopy(n.pitch))
+                self.fullRange = VocalRange(
+                    deepcopy(n.pitch),
+                    deepcopy(n.pitch)
+                )
                 continue
 
             if t.TYPE_CHECKING:
@@ -1130,14 +1133,64 @@ class MusicEngine:
         return output
 
     @staticmethod
-    def copyNote(note: m21.note.Note) -> m21.note.Note:
-        output: m21.note.Note = deepcopy(note)
+    def copyObject(obj: m21.base.Music21Object) -> m21.base.Music21Object:
+        output: m21.base.Music21Object = deepcopy(obj)
+        if hasattr(output, 'xml_id'):
+            del output.xml_id  # type: ignore
+        return output
 
+    @staticmethod
+    def copyNote(note: m21.note.Note) -> m21.note.Note:
+        output: m21.base.Music21Object = MusicEngine.copyObject(note)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.note.Note)
         output.lyrics = []
         output._tie = None
         if output.pitch.accidental is not None:
             output.pitch.accidental.displayStatus = None
 
+        return output
+
+    @staticmethod
+    def copyRest(rest: m21.note.Rest) -> m21.note.Rest:
+        output: m21.base.Music21Object = MusicEngine.copyObject(rest)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.note.Rest)
+        return output
+
+    @staticmethod
+    def copyChord(rest: m21.note.Rest) -> m21.chord.Chord:
+        output: m21.base.Music21Object = MusicEngine.copyObject(rest)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.chord.Chord)
+        return output
+
+    @staticmethod
+    def copyChordSymbol(cs: m21.harmony.ChordSymbol) -> m21.harmony.ChordSymbol:
+        output: m21.base.Music21Object = MusicEngine.copyObject(cs)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.harmony.ChordSymbol)
+        return output
+
+    @staticmethod
+    def copyBarline(barline: m21.bar.Barline) -> m21.bar.Barline:
+        output: m21.base.Music21Object = MusicEngine.copyObject(barline)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.bar.Barline)
+        return output
+
+    @staticmethod
+    def copyTimeSignature(timesig: m21.meter.TimeSignature) -> m21.meter.TimeSignature:
+        output: m21.base.Music21Object = MusicEngine.copyObject(timesig)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.meter.TimeSignature)
+        return output
+
+    @staticmethod
+    def copyKeySignature(keysig: m21.key.KeySignature) -> m21.key.KeySignature:
+        output: m21.base.Music21Object = MusicEngine.copyObject(keysig)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.key.KeySignature)
         return output
 
     @staticmethod
@@ -1363,7 +1416,7 @@ class MusicEngine:
         degree: int,
         alter: int | None = None
     ) -> m21.harmony.ChordSymbol | None:
-        newChord: m21.harmony.ChordSymbol = deepcopy(origChord)
+        newChord: m21.harmony.ChordSymbol = MusicEngine.copyChordSymbol(origChord)
         newChord.addChordStepModification(
             m21.harmony.ChordStepModification('add', degree, alter)
         )
@@ -2083,7 +2136,7 @@ class MusicEngine:
                         thisChordOffsetInMeas: OffsetQL = cs.getOffsetInHierarchy(thisChordMeas)
                         if thisChordOffsetInMeas > 0:
                             for lc in lastChords:
-                                chord = deepcopy(lc)
+                                chord = MusicEngine.copyChordSymbol(lc)
                                 chord.quarterLength = thisChordOffsetInMeas
                                 meas.insert(0, chord)
                         # we're done, so break out of measure loop
@@ -2092,7 +2145,7 @@ class MusicEngine:
                     if fullMeasuresNow:
                         # we only get here for measures between lastChordMeas and thisChordMeas
                         for lc in lastChords:
-                            chord = deepcopy(lc)
+                            chord = MusicEngine.copyChordSymbol(lc)
                             chord.quarterLength = meas.quarterLength
                             meas.insert(0, chord)
 
@@ -2135,7 +2188,7 @@ class MusicEngine:
                 # Change from loop above: there is no thisChord, so just
                 # fill out the entire last measure with lastChord.
                 for lc in lastChords:
-                    chord = deepcopy(lc)
+                    chord = MusicEngine.copyChordSymbol(lc)
                     chord.quarterLength = thisChordMeas.quarterLength
                     meas.insert(0, chord)
                 # we're done, so break out of measure loop
@@ -2144,7 +2197,7 @@ class MusicEngine:
             if fullMeasuresNow:
                 # we only get here for measures between lastChordMeas and thisChordMeas
                 for lc in lastChords:
-                    chord = deepcopy(lc)
+                    chord = MusicEngine.copyChordSymbol(lc)
                     chord.quarterLength = meas.quarterLength
                     meas.insert(0, chord)
 
@@ -2459,7 +2512,7 @@ class MusicEngine:
                                 )
                                 if melodyPitchName in nextChordPitchNames:
                                     # best option (0) is syncopated (early) next chord
-                                    options.insert(0, deepcopy(nextChord))
+                                    options.insert(0, MusicEngine.copyChordSymbol(nextChord))
 
             if melodyPitchName not in chordPitchNames:
                 options.extend(
@@ -2513,7 +2566,7 @@ class MusicEngine:
         if firstOrigcsQL > 0:
             # we need to leave a bit of the original cs in place, with ql trimmed
             # (don't modify in place, though; deepcopy and replace)
-            firstOrigcs: m21.harmony.ChordSymbol = deepcopy(origcs)
+            firstOrigcs: m21.harmony.ChordSymbol = MusicEngine.copyChordSymbol(origcs)
             firstOrigcs.quarterLength = firstOrigcsQL
             cStream.replace(origcs, firstOrigcs)
         else:
@@ -2526,7 +2579,7 @@ class MusicEngine:
 
         # finally, insert the second portion of origcs (deepcopied)
         if secondOrigcsQL > 0:
-            secondOrigcs: m21.harmony.ChordSymbol = deepcopy(origcs)
+            secondOrigcs: m21.harmony.ChordSymbol = MusicEngine.copyChordSymbol(origcs)
             secondOrigcs.quarterLength = secondOrigcsQL
             cStream.insert(secondOrigcsOffset, secondOrigcs)
 
@@ -2704,6 +2757,9 @@ class MusicEngine:
         # ChordSymbols from the piano accompaniment.
         leadSheet: m21.stream.Score = deepcopy(inLeadSheet)
 
+        # remove any of our custom xmlids
+        M21Utilities.removeAllXmlIds(leadSheet)
+
         # Most directions, dynamics, metronome marks, etc, will no longer apply,
         # and some scores have directions with offsets that extend the measure,
         # causing mass confusion about gaps between notes.
@@ -2815,6 +2871,10 @@ class MusicEngine:
             if abs(ks.sharps) > 6:
                 raise MusicEngineException(f'bad transposition to key with sharps={ks.sharps}')
 
+        # Make nice xml:ids for the melody; this has to happen here first, so we can
+        # construct meaningful/parseable xml:ids when adding chord options below.
+        M21Utilities.assureAllXmlIds(melody)
+
         # Any time the melody note is not in the chord, find some options for
         # better chords, insert one (adjusting other chords' durations as
         # necessary), and note the others somehow, so the user can choose.
@@ -2836,7 +2896,6 @@ class MusicEngine:
         #       inner list is the four Voices in that two-Measure grand staff
         # We harmonize the shoppedVoices list, and then insert all those Voices
         # into the appropriate Measures in the Score.
-
 
         shopped: m21.stream.Score = m21.stream.Score()
         shoppedVoices: list[FourVoices]  # some operations are easier on list of FourVoices
@@ -2886,6 +2945,9 @@ class MusicEngine:
         # the same as each other, put a tie there, too.
         # MusicEngine.fixupTies(shoppedVoices)
 
+        # fill out all the xml:ids that are missing (mostly harmony parts)
+        M21Utilities.assureAllXmlIds(shopped)
+
         return shopped
 
     @staticmethod
@@ -2900,6 +2962,7 @@ class MusicEngine:
         shoppedVoices: list[FourVoices] = []
         shopped: m21.stream.Score = m21.stream.Score()
         shopped.metadata = deepcopy(metadata)
+
         if shopped.metadata.title:
             if arrType == ArrangementType.UpperVoices:
                 shopped.metadata.title += ' (Upper Voices)'
@@ -2992,8 +3055,8 @@ class MusicEngine:
             # left barline
             if mMeas.leftBarline:
                 measureStuff.append(mMeas.leftBarline)
-                tlMeas.leftBarline = deepcopy(mMeas.leftBarline)
-                bbMeas.leftBarline = deepcopy(mMeas.leftBarline)
+                tlMeas.leftBarline = MusicEngine.copyBarline(mMeas.leftBarline)
+                bbMeas.leftBarline = MusicEngine.copyBarline(mMeas.leftBarline)
 
             # {tl,bb}Meas.insert(0) any keySig/timeSig that are at offset 0
             # in mMeas.recurse(). Just one of each type though.
@@ -3009,14 +3072,14 @@ class MusicEngine:
                 if not timeSigFound:
                     if isinstance(sig, m21.meter.TimeSignature):
                         measureStuff.append(sig)
-                        tlMeas.insert(0, deepcopy(sig))
-                        bbMeas.insert(0, deepcopy(sig))
+                        tlMeas.insert(0, MusicEngine.copyTimeSignature(sig))
+                        bbMeas.insert(0, MusicEngine.copyTimeSignature(sig))
                         timeSigFound = True
                 if not keySigFound:
                     if isinstance(sig, m21.key.KeySignature):
                         measureStuff.append(sig)
-                        tlMeas.insert(0, deepcopy(sig))
-                        bbMeas.insert(0, deepcopy(sig))
+                        tlMeas.insert(0, MusicEngine.copyKeySignature(sig))
+                        bbMeas.insert(0, MusicEngine.copyKeySignature(sig))
                         keySigFound = True
                 if keySigFound and timeSigFound:
                     break
@@ -3024,8 +3087,8 @@ class MusicEngine:
             # right barline
             if mMeas.rightBarline:
                 measureStuff.append(mMeas.rightBarline)
-                tlMeas.rightBarline = deepcopy(mMeas.rightBarline)
-                bbMeas.rightBarline = deepcopy(mMeas.rightBarline)
+                tlMeas.rightBarline = MusicEngine.copyBarline(mMeas.rightBarline)
+                bbMeas.rightBarline = MusicEngine.copyBarline(mMeas.rightBarline)
 
             # create two voices in each measure:
             # (tenor/lead in tlMeas, and bari/bass in bbMeas)
@@ -3051,7 +3114,7 @@ class MusicEngine:
             for cs in cMeas.recurse().getElementsByClass(m21.harmony.ChordSymbol):
                 measureStuff.append(cs)
                 offset = cs.getOffsetInHierarchy(cMeas)
-                tlMeas.insert(offset, deepcopy(cs))
+                tlMeas.insert(offset, MusicEngine.copyChordSymbol(cs))
 
             # Recurse all elements of mMeas, skipping any measureStuff
             # and any clefs and any LayoutBase (we don't care how the
@@ -3067,11 +3130,14 @@ class MusicEngine:
                 offset = el.getOffsetInHierarchy(mMeas)
                 if isinstance(el, m21.chord.Chord) and not isinstance(el, m21.harmony.ChordSymbol):
                     # Don't put a chord in the melody; put the top note from the chord instead
-                    note = deepcopy(el.notes[-1])
+                    note = MusicEngine.copyNote(el.notes[-1])
                     note.lyrics = deepcopy(el.lyrics)
                     el = note
+                elif isinstance(el, m21.note.Note):
+                    # copyNote does extra work
+                    el = MusicEngine.copyNote(el)
                 else:
-                    el = deepcopy(el)
+                    el = MusicEngine.copyObject(el)
                 if isinstance(el, m21.note.NotRest):
                     el.stemDirection = MusicEngine.STEM_DIRECTION[PartName.Lead]
                 lead.insert(offset, el)
@@ -3213,7 +3279,7 @@ class MusicEngine:
                 # positions to center of staff, because we don't want
                 # it positioned just for the one voice.
                 el.stepShift = 0  # I wish setting to 0 did something...
-                rest: m21.note.Rest = deepcopy(el)
+                rest: m21.note.Rest = m21.note.Rest()
                 rest.quarterLength = harmonyQL
                 if partName in (PartName.Tenor, PartName.Bari):
                     rest.style.hideObjectOnPrint = True
@@ -4285,19 +4351,6 @@ class MusicEngine:
         voice.insert(offset, newNote)
 
         return newNote
-
-    # @staticmethod
-    # def appendShoppedChord(
-    #     fourNotes: FourNotes,
-    #     fourVoices: FourVoices
-    # ):
-    #     for note, voice in zip(fourNotes, fourVoices):
-    #         voice.append(note)
-    #
-    # @staticmethod
-    # def appendDeepCopyTo(gn: m21.note.GeneralNote, fourVoices: FourVoices):
-    #     for s in fourVoices:
-    #         s.append(deepcopy(gn))
 
     @staticmethod
     def findChordAtOffset(
