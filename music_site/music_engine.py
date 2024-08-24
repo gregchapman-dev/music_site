@@ -3093,16 +3093,16 @@ class MusicEngine:
             # create two voices in each measure:
             # (tenor/lead in tlMeas, and bari/bass in bbMeas)
             tenor = m21.stream.Voice()
-            tenor.id = 'tenor'
+            tenor.c21_label = 'tenor'
             lead = m21.stream.Voice()
-            lead.id = 'lead'
+            lead.c21_label = 'lead'
             tlMeas.insert(0, tenor)
             tlMeas.insert(0, lead)
 
             bari = m21.stream.Voice()
-            bari.id = 'bari'
+            bari.c21_label = 'bari'
             bass = m21.stream.Voice()
-            bass.id = 'bass'
+            bass.c21_label = 'bass'
             bbMeas.insert(0, bari)
             bbMeas.insert(0, bass)
 
@@ -4477,14 +4477,14 @@ class MusicEngine:
                 if len(voices) != 2:
                     return -1
                 if partIdx == 0:
-                    if voices[0].id != 'tenor':
+                    if voices[0].c21_label != 'tenor':  # type: ignore
                         return -1
-                    if voices[1].id != 'lead':
+                    if voices[1].c21_label != 'lead':  # type: ignore
                         return -1
                 elif partIdx == 1:
-                    if voices[0].id != 'bari':
+                    if voices[0].c21_label != 'bari':  # type: ignore
                         return -1
-                    if voices[1].id != 'bass':
+                    if voices[1].c21_label != 'bass':  # type: ignore
                         return -1
 
         # for every lead note, see whether there are notes or spaces in the corresponding
