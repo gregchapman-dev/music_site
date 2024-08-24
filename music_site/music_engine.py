@@ -3093,16 +3093,16 @@ class MusicEngine:
             # create two voices in each measure:
             # (tenor/lead in tlMeas, and bari/bass in bbMeas)
             tenor = m21.stream.Voice()
-            tenor.c21_label = 'tenor'
+            tenor.c21_label = 'tenor'  # type: ignore
             lead = m21.stream.Voice()
-            lead.c21_label = 'lead'
+            lead.c21_label = 'lead'  # type: ignore
             tlMeas.insert(0, tenor)
             tlMeas.insert(0, lead)
 
             bari = m21.stream.Voice()
-            bari.c21_label = 'bari'
+            bari.c21_label = 'bari'  # type: ignore
             bass = m21.stream.Voice()
-            bass.c21_label = 'bass'
+            bass.c21_label = 'bass'  # type: ignore
             bbMeas.insert(0, bari)
             bbMeas.insert(0, bass)
 
