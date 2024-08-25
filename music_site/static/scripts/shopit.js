@@ -1,3 +1,9 @@
+    let gScore;
+    let gScoreEl;
+    let gScoreMusicXml;  // for downloading
+    let gScoreHumdrum;   // for uploading with commands (it's way smaller)
+    let gScoreMei;       // for rendering with verovio
+
     async function processMusicFromResponse(resp) {
         // We do three things with the MusicXML from the response:
 
@@ -5,7 +11,7 @@
         jsonBody = await resp.json();
         gScoreMusicXml = jsonBody['musicxml'];
         gScoreHumdrum = jsonBody['humdrum'];
-        gScoreMei = jsonBody['mei']
+        gScoreMei = jsonBody['mei'];
 
         // 2. We draw it on the webpage.
         let svg = tk.renderData(gScoreMei, {});
@@ -22,7 +28,7 @@
         formData.append('command', 'transpose');
         formData.append('semitones', +2);  // 2 semitones: a whole tone up
         formData.append('score', gScoreHumdrum);
-        formData.append('format', 'humdrum')
+        formData.append('format', 'humdrum');
         fetch(
             '/command',
             {method: 'POST', body: formData }
@@ -36,7 +42,7 @@
         formData.append('command', 'shopIt');
         formData.append('arrangementType', arrType);
         formData.append('score', gScoreHumdrum);
-        formData.append('format', 'humdrum')
+        formData.append('format', 'humdrum');
         fetch(
             '/command',
             {method: 'POST', body: formData }
@@ -46,11 +52,11 @@
     }
 
     function shopItUpper() {
-        shopIt('UpperVoices')
+        shopIt('UpperVoices');
     }
 
     function shopItLower() {
-        shopIt('LowerVoices')
+        shopIt('LowerVoices');
     }
 
     async function bytesToBase64DataUrl(bytes, type = "application/octet-stream") {
@@ -83,7 +89,7 @@
             // POSTed was MusicXML).
             const formData = new FormData();
             // formData.append('score', reader.result, selectedFile.name)
-            formData.append('file', selectedFile)
+            formData.append('file', selectedFile);
             formData.append('filename', selectedFile.name);
             const resp = await fetch(
                 '/score',
@@ -97,7 +103,7 @@
     function chooseNewChordOption(target) {
         formData = new FormData();
         formData.append('command', 'chooseChordOption');
-        formData.append('score', gScoreMEI);
+        formData.append('score', gScoreMei);
         formData.append('format', 'mei');
         formData.append('chordOptionId', target.id)
         fetch(
@@ -115,8 +121,10 @@
                 break;
             }
             if (target.nodeName === "g"
-                    and target.id.startsWith("dir-")  // ultimately "harm-", but "dir-" for now
-                    and !target.id.endsWith("_")) {  // "_" means already selected
+                    && target.id.startsWith("dir-")) {  // ultimately "harm-", but "dir-" for now
+                if (target.id.endsWith("_")) {  // "_" means already selected
+                    break;
+                }
                 chooseNewChordOption(target);
                 break;
             }
@@ -141,7 +149,7 @@
                 pageWidth: 1000,
 //                 adjustPageWidth: true,
 //                 adjustPageHeight: true
-            })
+            });
 //             console.log("Verovio options:", tk.getOptions());
         }
     });
@@ -166,13 +174,7 @@
         false,
     );
 
-    let gScore;
-    let gScoreEl;
-    let gScoreMusicXml;  // for downloading
-    let gScoreHumdrum;   // for uploading with commands (it's way smaller)
-    let gScoreMei;       // for rendering with verovio
-
-    notationSvg.addEventListener("click", svgClick)
+    notationSvg.addEventListener("click", svgClick);
     transposeBtn.addEventListener("click", transpose);
-    shopItUpperBtn.addEventListener("click", shopItUpper)
-    shopItLowerBtn.addEventListener("click", shopItLower)
+    shopItUpperBtn.addEventListener("click", shopItUpper);
+    shopItLowerBtn.addEventListener("click", shopItLower);

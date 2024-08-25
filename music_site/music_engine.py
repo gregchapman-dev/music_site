@@ -4518,4 +4518,4 @@ class MusicEngine:
 
         if t.TYPE_CHECKING:
             assert isinstance(chosenOption, m21.expressions.TextExpression)
-        print('chosenOption == {chosenOption}')
+        print(f'chosenOption == {chosenOption}')

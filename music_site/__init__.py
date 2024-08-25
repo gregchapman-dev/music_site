@@ -167,6 +167,7 @@ def command() -> dict:
         m21Score = getScore(request)
         try:
             MusicEngine.chooseChordOption(m21Score, chordOptionId)
+            result = produceResultScores(m21Score)
         except Exception as e:
             print('Failed to chooseChordOption')
             raise e
