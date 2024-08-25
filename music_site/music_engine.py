@@ -4509,3 +4509,13 @@ class MusicEngine:
                         break
 
         return harmonyGaps
+
+    @staticmethod
+    def chooseChordOption(score: m21.stream.Score, optionId: str):
+        chosenOption = score.recurse().getElementById(optionId)
+        if chosenOption is None:
+            raise MusicEngineException(f'chosenOption {chosenOption} not found in score.')
+
+        if t.TYPE_CHECKING:
+            assert isinstance(chosenOption, m21.expressions.TextExpression)
+        print('chosenOption == {chosenOption}')

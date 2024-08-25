@@ -94,6 +94,36 @@
         reader.readAsBinaryString(selectedFile);
     }
 
+    function chooseNewChordOption(target) {
+        formData = new FormData();
+        formData.append('command', 'chooseChordOption');
+        formData.append('score', gScoreMEI);
+        formData.append('format', 'mei');
+        formData.append('chordOptionId', target.id)
+        fetch(
+            '/command',
+            {method: 'POST', body: formData }
+        ).then( async (resp) => {
+            await processMusicFromResponse(resp);
+        });
+    }
+
+    function svgClick(event) {
+        let target = event.target;
+        while (target) {
+            if (target.nodeName === "svg") {
+                break;
+            }
+            if (target.nodeName === "g"
+                    and target.id.startsWith("dir-")  // ultimately "harm-", but "dir-" for now
+                    and !target.id.endsWith("_")) {  // "_" means already selected
+                chooseNewChordOption(target);
+                break;
+            }
+            target = target.parentNode;
+        }
+    }
+
     // ----------- main code ----------------
 
     let tk;
@@ -116,6 +146,7 @@
         }
     });
 
+    const notationSvg = document.querySelector('#notation');
     const transposeBtn = document.querySelector('#transpose');
     const shopItUpperBtn = document.querySelector('#shopItUpper');
     const shopItLowerBtn = document.querySelector('#shopItLower');
@@ -141,6 +172,7 @@
     let gScoreHumdrum;   // for uploading with commands (it's way smaller)
     let gScoreMei;       // for rendering with verovio
 
+    notationSvg.addEventListener("click", svgClick)
     transposeBtn.addEventListener("click", transpose);
     shopItUpperBtn.addEventListener("click", shopItUpper)
     shopItLowerBtn.addEventListener("click", shopItLower)

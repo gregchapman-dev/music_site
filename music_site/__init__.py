@@ -159,6 +159,19 @@ def command() -> dict:
             raise e
             # abort(422, 'Failed to shopIt/export')
 
+    elif cmd == 'chooseChordOption':
+        chordOptionId: str | None = request.form.get('chordOptionId')
+        if not chordOptionId:
+            abort(400, 'Invalid chooseChordOption (no chordOptionId specified)')
+
+        m21Score = getScore(request)
+        try:
+            MusicEngine.chooseChordOption(m21Score, chordOptionId)
+        except Exception as e:
+            print('Failed to chooseChordOption')
+            raise e
+            # abort(422, 'Failed to chooseChordOption)
+
     else:
         print('Invalid music engine command: {cmd}')
         abort(400, 'Invalid music engine command')
@@ -177,7 +190,7 @@ def score() -> dict:
     print(f'PUT /score: first 100 bytes of {fileName}: {fileData[0:100]!r}')
     result: dict[str, str] = {}
     try:
-        # import into music21 (saving the m21 score in gM21Score)
+        # import into music21
         print(f'PUT /score: parsing {fileName}')
         m21Score = MusicEngine.toMusic21Score(fileData, fileName)
         # export to various formats
