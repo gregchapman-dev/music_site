@@ -102,7 +102,7 @@ class Chord(Sequence):
             # (by setting the bass to the root).
             self.preferredBassPitchName = PitchName(bass.name)
             self.sym.bass(self.sym.root())
-            M21Utilities._updatePitches(self.sym)
+            M21Utilities.updatePitches(self.sym)
 
         # tuple[role=1..13, pitch]
 
@@ -584,6 +584,17 @@ class HarmonyIterator:
         self.cList = list(
             self.chords.recurse().getElementsByClass(m21.harmony.ChordSymbol)
         )
+
+        # When we upgrade the options to ChordSymbols (when verovio is fixed
+        # to no longer print multiple <harm>s on top of each other), we will
+        # need to do this again (instead of the code above).
+        # self.cList = []
+        # for cs in self.chords.recurse().getElementsByClass(m21.harmony.ChordSymbol):
+        #     if hasattr(cs, 'xml_id') and cs.xml_id.startswith('_'):
+        #         # it's a chord option, not to be harmonized (unless selected later)
+        #         continue
+        #     self.cList.append(cs)
+
         self.cStartOffsetList = []
         self.cEndOffsetList = []
         for c in self.cList:
@@ -1745,6 +1756,11 @@ class MusicEngine:
         if not allOptions:
             raise MusicEngineException('no non-pillar chord options found')
 
+#         for op in allOptions:
+#             # set op.c21_full_text (so we can modify it to indicate selection)
+#             if not hasattr(op, 'c21_full_text'):
+#                 op.c21_full_text = M21Utilities.convertChordSymbolToText(op)  # type: ignore
+
         return allOptions
 
     STEM_DIRECTION: dict[PartName, str] = {
@@ -2522,9 +2538,8 @@ class MusicEngine:
             if options:
                 chosenIdx: int = 0
                 chosenOption = options[chosenIdx]
-                # We need a place to store options for a subrange of the melodyNote
-                # melodyNote.shopit_options_list[] = options  # type: ignore
-                # melodyNote.shopit_current_option_index = chosenIdx  # type: ignore
+
+                M21Utilities.assureXmlId(chosenOption)
 
                 startOffsetInVoice: OffsetQL = opFrac(
                     hr.startOffset - cVoice.getOffsetInHierarchy(chords)
@@ -2539,15 +2554,20 @@ class MusicEngine:
                     durQL
                 )
 
-                # then add all but the chosen one with the same offset,
-                # but as TextExpression, not ChordSymbol.
+                # then add all but the chosen one with the same offset
                 for i, csOption in enumerate(options):
                     if i == chosenIdx:
                         continue
                     csText: str = M21Utilities.convertChordSymbolToText(csOption)
-                    csTextExp = m21.expressions.TextExpression('(' + csText + ')')
+                    csTextExp = m21.expressions.TextExpression(csText)
                     csTextExp.placement = 'above'
                     cVoice.insert(startOffsetInVoice, csTextExp)
+                    # I would prefer the following, but verovio prints multiple <harm>s
+                    # on top of each other.
+                    # xml:id gets a prepended underscore (they are not chosen).
+                    # M21Utilities.assureXmlId(csOption, prefix='_harm')
+                    # csOption.quarterLength = durQL
+                    # cVoice.insert(startOffsetInVoice, csOption)
 
     @staticmethod
     def replaceChordSymbolPortion(
@@ -4519,3 +4539,33 @@ class MusicEngine:
         if t.TYPE_CHECKING:
             assert isinstance(chosenOption, m21.expressions.TextExpression)
         print(f'chosenOption == {chosenOption}')
+
+        choiceOffsetInScore: OffsetQL = chosenOption.getOffsetInHierarchy(score)
+        prevOptionList: list[m21.harmony.ChordSymbol] = list(
+            score.recurse()
+            .getElementsByOffsetInHierarchy(choiceOffsetInScore)
+            .getElementsByClass(m21.harmony.ChordSymbol)
+        )
+        if not prevOptionList:
+            # nothing was selected?!?
+            raise MusicEngineException('No current chord selection found')
+        if len(prevOptionList) > 1:
+            # too many chords selected
+            raise MusicEngineException('Multiple simultaneous chord selections found')
+        prevOption: m21.harmony.ChordSymbol = prevOptionList[0]
+        print(f'prevOption == {prevOption}')
+
+        prevOptionStr: str = M21Utilities.convertChordSymbolToText(prevOption)
+        print(f'prevOptionStr == {prevOptionStr}')
+
+        chosenOptionFigure: str = M21Utilities.convertPrintableTextToChordSymbolFigure(
+            chosenOption.content
+        )
+        print(f'chosenOptionFigure == {chosenOptionFigure}')
+
+        csChosen = m21.harmony.ChordSymbol(chosenOptionFigure)
+        tePrevious = m21.expressions.TextExpression(prevOptionStr)
+        tePrevious.placement = 'above'
+
+        score.replace(prevOption, csChosen, recurse=True)
+        score.replace(chosenOption, tePrevious, recurse=True)
