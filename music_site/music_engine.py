@@ -2560,6 +2560,7 @@ class MusicEngine:
                         continue
                     csText: str = M21Utilities.convertChordSymbolToText(csOption)
                     csTextExp = m21.expressions.TextExpression(csText)
+#                     csTextExp.me_chordsymbol = csOption  # type: ignore
                     csTextExp.placement = 'above'
                     cVoice.insert(startOffsetInVoice, csTextExp)
                     # I would prefer the following, but verovio prints multiple <harm>s
@@ -3150,12 +3151,13 @@ class MusicEngine:
                 offset = el.getOffsetInHierarchy(mMeas)
                 if isinstance(el, m21.chord.Chord) and not isinstance(el, m21.harmony.ChordSymbol):
                     # Don't put a chord in the melody; put the top note from the chord instead
-                    note = MusicEngine.copyNote(el.notes[-1])
+                    note = MusicEngine.copyObject(el.notes[-1])  # don't use copyNote
+                    if t.TYPE_CHECKING:
+                        assert isinstance(note, m21.note.GeneralNote)
                     note.lyrics = deepcopy(el.lyrics)
                     el = note
                 elif isinstance(el, m21.note.Note):
-                    # copyNote does extra work
-                    el = MusicEngine.copyNote(el)
+                    el = MusicEngine.copyObject(el)  # don't use copyNote, it removes lyrics, ties
                 else:
                     el = MusicEngine.copyObject(el)
                 if isinstance(el, m21.note.NotRest):
@@ -4536,6 +4538,9 @@ class MusicEngine:
         if chosenOption is None:
             raise MusicEngineException(f'chosenOption {chosenOption} not found in score.')
 
+#         if not hasattr(chosenOption, 'me_chordsymbol'):
+#             raise MusicEngineException(f'chosenOption {chosenOption} is not a chord.')
+
         if t.TYPE_CHECKING:
             assert isinstance(chosenOption, m21.expressions.TextExpression)
         print(f'chosenOption == {chosenOption}')
@@ -4564,7 +4569,9 @@ class MusicEngine:
         print(f'chosenOptionFigure == {chosenOptionFigure}')
 
         csChosen = m21.harmony.ChordSymbol(chosenOptionFigure)
+#         csChosen = chosenOption.me_chordsymbol  # type: ignore
         tePrevious = m21.expressions.TextExpression(prevOptionStr)
+#         tePrevious.me_chordsymbol = prevOption  # type: ignore
         tePrevious.placement = 'above'
 
         score.replace(prevOption, csChosen, recurse=True)
