@@ -7,6 +7,7 @@ from io import BytesIO
 
 from flask import (
     Flask,
+    Response,
     redirect,
     render_template,
     request,
@@ -59,8 +60,8 @@ except OSError:
     pass
 
 @app.route('/')
-def index():
-    sessionUUID: str = request.cookies.get('sessionUUID')
+def index() -> Response | str:
+    sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
         resp = make_response(render_template('index.html', meiInitialScore=''))
         sessionUUID = str(uuid.uuid4())
@@ -132,25 +133,25 @@ def getScore(sessionUUID: str) -> m21.stream.Score:
 
 def produceResultScores(m21Score: m21.stream.Score, sessionUUID: str):
     print('producing MusicXML')
-    musicXML: str = MusicEngine.toMusicXML(m21Score)
+    musicXMLStr: str = MusicEngine.toMusicXML(m21Score)
     print('done producing MusicXML')
     print('producing Humdrum')
-    humdrum: str = MusicEngine.toHumdrum(m21Score)
+    humdrumStr: str = MusicEngine.toHumdrum(m21Score)
     print('done producing Humdrum')
     print('producing MEI')
-    mei: str = MusicEngine.toMei(m21Score)
+    meiStr: str = MusicEngine.toMei(m21Score)
     print('done producing MEI')
-    fakePerSessionDB[sessionUUID]['musicxml'] = musicXML
-    fakePerSessionDB[sessionUUID]['mei'] = mei
-    fakePerSessionDB[sessionUUID]['humdrum'] = humdrum
+    fakePerSessionDB[sessionUUID]['musicxml'] = musicXMLStr
+    fakePerSessionDB[sessionUUID]['mei'] = meiStr
+    fakePerSessionDB[sessionUUID]['humdrum'] = humdrumStr
     return {
-        'mei': mei
+        'mei': meiStr
     }
 
 
 @app.route('/command', methods=['POST'])
 def command() -> dict:
-    sessionUUID: str = request.cookies.get('sessionUUID')
+    sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
 
@@ -235,7 +236,7 @@ def command() -> dict:
 
 @app.route('/score', methods=['POST'])
 def score() -> dict:
-    sessionUUID: str = request.cookies.get('sessionUUID')
+    sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
 
@@ -259,8 +260,8 @@ def score() -> dict:
     return result
 
 @app.route('/musicxml', methods=['GET'])
-def musicxml() -> str:
-    sessionUUID: str = request.cookies.get('sessionUUID')
+def musicxml() -> Response:
+    sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
 
@@ -273,11 +274,11 @@ def musicxml() -> str:
 
     musicxmlStr: str = sessionData['musicxml']
     musicxmlBytes: bytes = musicxmlStr.encode()
-    return send_file(BytesIO(musicxmlBytes), download_name='Score.musicxml', as_attachment=True )
+    return send_file(BytesIO(musicxmlBytes), download_name='Score.musicxml', as_attachment=True)
 
 @app.route('/humdrum', methods=['GET'])
-def humdrum() -> str:
-    sessionUUID: str = request.cookies.get('sessionUUID')
+def humdrum() -> Response:
+    sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
 
@@ -290,14 +291,14 @@ def humdrum() -> str:
 
     humdrumStr: str = sessionData['humdrum']
     humdrumBytes: bytes = humdrumStr.encode()
-    return send_file(BytesIO(humdrumBytes), download_name='Score.krn', as_attachment=True )
+    return send_file(BytesIO(humdrumBytes), download_name='Score.krn', as_attachment=True)
 
 @app.route('/mei', methods=['GET'])
-def mei() -> str:
+def mei() -> Response:
     # almost never used; if there is an mei score, the URL that calls this server API will
     # replaced with a data URL containing the mei data.  The only time this API is called
     # (at the moment) is if there is no mei score, and this API will fail.
-    sessionUUID: str = request.cookies.get('sessionUUID')
+    sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
 
@@ -310,4 +311,4 @@ def mei() -> str:
 
     meiStr: str = sessionData['mei']
     meiBytes: bytes = meiStr.encode()
-    return send_file(BytesIO(meiBytes), download_name='Score.mei', as_attachment=True )
+    return send_file(BytesIO(meiBytes), download_name='Score.mei', as_attachment=True)
