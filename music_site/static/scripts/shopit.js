@@ -4,10 +4,12 @@
     let gScoreMei = '';       // for rendering with verovio
 
     async function processMusicFromResponse(resp) {
-        jsonBody = await resp.json();
-        gScoreMei = jsonBody['mei'];
-        renderMusic()
-        await replaceDataUrl(downloadMEITag, gScoreMei, 'Score.mei');
+        if (resp.ok) {
+            jsonBody = await resp.json();
+            gScoreMei = jsonBody['mei'];
+            renderMusic();
+            await replaceDataUrl(downloadMEITag, gScoreMei, 'Score.mei');
+        }
     }
 
     function renderMusic() {
