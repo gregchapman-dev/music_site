@@ -1,34 +1,26 @@
     let gScore;
-    let gScoreEl;
-    let gScoreMusicXml;  // for downloading
-    let gScoreHumdrum;   // for uploading with commands (it's way smaller)
-    let gScoreMei;       // for rendering with verovio
+//     let gScoreMusicXml;  // for downloading
+//     let gScoreHumdrum;   // for uploading with commands (it's way smaller)
+    let gScoreMei = '';       // for rendering with verovio
 
     async function processMusicFromResponse(resp) {
-        // We do three things with the MusicXML from the response:
-
-        // 1. We stash it off so we can upload it later.
         jsonBody = await resp.json();
-        gScoreMusicXml = jsonBody['musicxml'];
-        gScoreHumdrum = jsonBody['humdrum'];
         gScoreMei = jsonBody['mei'];
-
-        // 2. We draw it on the webpage.
-        let svg = tk.renderData(gScoreMei, {});
-        document.getElementById("notation").innerHTML = svg;
-
-        // 3. We insert them as data URLs in the download anchor tags.
-        await replaceDataUrl(downloadMusicXMLTag, gScoreMusicXml, 'Shopped.musicxml');
-        await replaceDataUrl(downloadHumdrumTag, gScoreHumdrum, 'Shopped.krn');
+        renderMusic()
         await replaceDataUrl(downloadMEITag, gScoreMei, 'Shopped.mei');
+    }
+
+    function renderMusic() {
+        if (gScoreMei != '') {
+            let svg = tk.renderData(gScoreMei, {});
+            document.getElementById("notation").innerHTML = svg;
+        }
     }
 
     function transpose() {
         formData = new FormData();
         formData.append('command', 'transpose');
         formData.append('semitones', +2);  // 2 semitones: a whole tone up
-        formData.append('score', gScoreHumdrum);
-        formData.append('format', 'humdrum');
         fetch(
             '/command',
             {method: 'POST', body: formData }
@@ -41,8 +33,6 @@
         formData = new FormData();
         formData.append('command', 'shopIt');
         formData.append('arrangementType', arrType);
-        formData.append('score', gScoreHumdrum);
-        formData.append('format', 'humdrum');
         fetch(
             '/command',
             {method: 'POST', body: formData }
@@ -67,6 +57,11 @@
             });
             reader.readAsDataURL(new File([bytes], "", { type }));
         });
+    }
+
+    async function dataUrlToBytes(dataUrl) {
+        const res = await fetch(dataUrl);
+        return new Uint8Array(await res.arrayBuffer());
     }
 
     async function replaceDataUrl(anchorTag, text, name) {
@@ -137,7 +132,7 @@
     let tk;
 
     document.addEventListener("DOMContentLoaded", (event) => {
-        verovio.module.onRuntimeInitialized = () => {
+        verovio.module.onRuntimeInitialized = async () => {
             tk = new verovio.toolkit();
             console.log("Verovio has loaded!");
 //             console.log("Verovio default options:", tk.getDefaultOptions());
@@ -151,6 +146,16 @@
 //                 adjustPageHeight: true
             });
 //             console.log("Verovio options:", tk.getOptions());
+            meiDataUrl = downloadMEITag.attributes.getNamedItem("href");
+            if (meiDataUrl == "data:plain/text,NothingHere") {
+                gScoreMei = '';
+            }
+            else {
+                td = new TextDecoder();
+                bytes = await dataUrlToBytes(meiDataUrl)
+                gScoreMei = td.decode(bytes);
+            }
+            renderMusic()
         }
     });
 

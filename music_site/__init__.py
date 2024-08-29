@@ -1,9 +1,20 @@
 import os
 import sys
 import re
+import uuid
+import base64
+from io import BytesIO
 
 from flask import (
-    Flask, redirect, render_template, request, session, url_for, abort
+    Flask,
+    redirect,
+    render_template,
+    request,
+    make_response,
+    session,
+    url_for,
+    abort,
+    send_file
 )
 
 import music21 as m21
@@ -28,6 +39,19 @@ app.config.from_mapping(
 
 app.config.from_pyfile('config.py', silent=True)
 
+# fakePerSessionDB is keyed by sessionUUID, and the value is a session dict that
+# contains some of the following:
+# {
+#   'm21Score': pickledAndZippedMusic21Score,
+#   'mei': meiString,
+#   'humdrum': humdrumString,
+#   'musicxml': musicxmlString
+# }
+# Because it is faked with a dict, everytime we restart the server, it goes away.
+# It also doesn't support multiple instances of the server (since each will have
+# its own fake DB).  But good enough for now, to test out the new flow.
+fakePerSessionDB: dict[str, dict[str, str]] = {}
+
 # ensure the instance folder exists
 try:
     os.makedirs(app.instance_path)
@@ -36,12 +60,36 @@ except OSError:
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    nothingDataURL: str = 'data:plain/text,NothingHere'
+    sessionUUID: str = request.cookies.get('sessionUUID')
+    if not sessionUUID:
+        resp = make_response(render_template('index.html', meiDataURL=nothingDataURL))
+        sessionUUID = str(uuid.uuid4())
+        fakePerSessionDB[sessionUUID] = {}
+        oneMonth: int = 31 * 24 * 3600
+        resp.set_cookie(
+            'sessionUUID',
+            value=sessionUUID,
+            max_age=oneMonth,
+            secure=False,
+            httponly=True
+        )
+        return resp
 
-# TODO: Put these in some sort of session storage so each user can have their own data,
-# TODO: and we don't have to receive/reparse the MusicXML (or Humdrum) for each command.
-# TODO: gM21Score: m21.stream.Score | None = None
-# TODO: gMusicXmlScore: str = ''
+    if sessionUUID not in fakePerSessionDB:
+        fakePerSessionDB[sessionUUID] = {}
+
+    # there is a sessionUUID; respond with the resulting score (mei for now, maybe humdrum later)
+    sessionData: dict[str, str] = fakePerSessionDB[sessionUUID]
+    if 'mei' not in sessionData:
+        # no mei score in sessionData
+        return render_template('index.html', meiDataURL=nothingDataURL)
+
+    meiStr: str = sessionData['mei']
+    if meiStr:
+        b64Str: str = base64.urlsafe_b64encode(meiStr.encode('utf-8')).decode('utf-8')
+        meiDataURL: str = 'data:plain/text;base64,' + b64Str
+    return render_template('index.html', meiDataURL=meiDataURL)
 
 
 FMT_TO_FILE_EXT: dict = {
@@ -51,16 +99,19 @@ FMT_TO_FILE_EXT: dict = {
 }
 
 
-def getScore(req) -> m21.stream.Score:
+def getScore(sessionUUID: str) -> m21.stream.Score:
+    if sessionUUID not in fakePerSessionDB:
+        fakePerSessionDB[sessionUUID] = {}
+
+    sessionData: dict[str, str] = fakePerSessionDB[sessionUUID]
+    # 888 someday the m21 score will be in sessionData (frozen)
     m21Score: m21.stream.Score
-    fmt: str = req.form.get('format', '')
-    scoreStr: str = req.form.get('score', '')
-    if not scoreStr:
+    fmt: str = 'mei'
+    if fmt not in sessionData:
         print('No score to transpose')
         abort(422, 'No score to transpose')
-    if not fmt or fmt not in FMT_TO_FILE_EXT:
-        print('Unknown format score')
-        abort(422, 'Unknown format score')
+
+    scoreStr: str = sessionData[fmt]
 
     try:
         print(f'first 100 bytes of scoreStr: {scoreStr[0:100]!r}')
@@ -83,7 +134,7 @@ def getScore(req) -> m21.stream.Score:
         abort(422, 'Score failed to parse')
 
 
-def produceResultScores(m21Score: m21.stream.Score) -> dict[str, str]:
+def produceResultScores(m21Score: m21.stream.Score, sessionUUID: str):
     print('producing MusicXML')
     musicXML: str = MusicEngine.toMusicXML(m21Score)
     print('done producing MusicXML')
@@ -93,15 +144,20 @@ def produceResultScores(m21Score: m21.stream.Score) -> dict[str, str]:
     print('producing MEI')
     mei: str = MusicEngine.toMei(m21Score)
     print('done producing MEI')
+    fakePerSessionDB[sessionUUID]['musicxml'] = musicXML
+    fakePerSessionDB[sessionUUID]['mei'] = mei
+    fakePerSessionDB[sessionUUID]['humdrum'] = humdrum
     return {
-        'musicxml': musicXML,
-        'humdrum': humdrum,
         'mei': mei
     }
 
 
 @app.route('/command', methods=['POST'])
 def command() -> dict:
+    sessionUUID: str = request.cookies.get('sessionUUID')
+    if not sessionUUID:
+        abort(400, 'No sessionUUID!')  # should never happen
+
     result: dict[str, str] = {}
     # it's a command (like 'transpose'), maybe with some command-defined parameters
     cmd: str = request.form.get('command', '')
@@ -122,12 +178,12 @@ def command() -> dict:
             print(f'Invalid transpose (invalid semitones specified: "{semitonesStr}")')
             abort(400, 'Invalid transpose (invalid semitones specified)')
 
-        transposeScore: m21.stream.Score = getScore(request)
+        transposeScore: m21.stream.Score = getScore(sessionUUID)
 
         try:
             print('transposing music21 score')
             MusicEngine.transposeInPlace(transposeScore, semitones)
-            result = produceResultScores(transposeScore)
+            result = produceResultScores(transposeScore, sessionUUID)
         except Exception:
             print('Failed to transpose/export')
             abort(422, 'Failed to transpose/export')  # Unprocessable Content
@@ -149,11 +205,11 @@ def command() -> dict:
             abort(400,
                 f'Invalid shopIt (invalid arrangementType specified: "{arrangementTypeStr}")')
 
-        m21Score: m21.stream.Score = getScore(request)
+        m21Score: m21.stream.Score = getScore(sessionUUID)
 
         try:
             shoppedScore = MusicEngine.shopPillarMelodyNotesFromLeadSheet(m21Score, arrType)
-            result = produceResultScores(shoppedScore)
+            result = produceResultScores(shoppedScore, sessionUUID)
         except Exception as e:
             print('Failed to shopIt/export')
             raise e
@@ -164,10 +220,10 @@ def command() -> dict:
         if not chordOptionId:
             abort(400, 'Invalid chooseChordOption (no chordOptionId specified)')
 
-        m21Score = getScore(request)
+        m21Score = getScore(sessionUUID)
         try:
             MusicEngine.chooseChordOption(m21Score, chordOptionId)
-            result = produceResultScores(m21Score)
+            result = produceResultScores(m21Score, sessionUUID)
         except Exception as e:
             print('Failed to chooseChordOption')
             raise e
@@ -183,6 +239,10 @@ def command() -> dict:
 
 @app.route('/score', methods=['POST'])
 def score() -> dict:
+    sessionUUID: str = request.cookies.get('sessionUUID')
+    if not sessionUUID:
+        abort(400, 'No sessionUUID!')  # should never happen
+
     # files in formdata end up in request.files
     # all other formdata entries end up in request.form
     file = request.files['file']
@@ -190,14 +250,46 @@ def score() -> dict:
     fileData: str | bytes = file.read()
     print(f'PUT /score: first 100 bytes of {fileName}: {fileData[0:100]!r}')
     result: dict[str, str] = {}
-    try:
-        # import into music21
-        print(f'PUT /score: parsing {fileName}')
-        m21Score = MusicEngine.toMusic21Score(fileData, fileName)
-        # export to various formats
-        result = produceResultScores(m21Score)
-    except Exception:
-        print('Exception during parse/write')
-        abort(422, 'Unprocessable music score')  # Unprocessable Content
+#     try:
+    # import into music21
+    print(f'PUT /score: parsing {fileName}')
+    m21Score = MusicEngine.toMusic21Score(fileData, fileName)
+    # export to various formats
+    result = produceResultScores(m21Score, sessionUUID)
+#     except Exception:
+#         print('Exception during parse/write')
+#         abort(422, 'Unprocessable music score')  # Unprocessable Content
 
     return result
+
+@app.route('/musicxml', methods=['GET'])
+def musicxml() -> str:
+    sessionUUID: str = request.cookies.get('sessionUUID')
+    if not sessionUUID:
+        abort(400, 'No sessionUUID!')  # should never happen
+
+    if sessionUUID not in fakePerSessionDB:
+        fakePerSessionDB[sessionUUID] = {}
+
+    sessionData: dict[str, str] = fakePerSessionDB[sessionUUID]
+    if 'musicxml' not in sessionData:
+        abort(400, 'Download is invalid: no score uploaded yet.')
+
+    musicxmlStr: str = sessionData['musicxml']
+    return send_file(BytesIO(musicxmlStr), download_name='Shopped.musicxml', as_attachment=True )
+
+@app.route('/humdrum', methods=['GET'])
+def humdrum() -> str:
+    sessionUUID: str = request.cookies.get('sessionUUID')
+    if not sessionUUID:
+        abort(400, 'No sessionUUID!')  # should never happen
+
+    if sessionUUID not in fakePerSessionDB:
+        fakePerSessionDB[sessionUUID] = {}
+
+    sessionData: dict[str, str] = fakePerSessionDB[sessionUUID]
+    if 'humdrum' not in sessionData:
+        abort(400, 'Download is invalid: no score uploaded yet.')
+
+    humdrumStr: str = sessionData['humdrum']
+    return send_file(BytesIO(humdrumStr), download_name='Shopped.krn', as_attachment=True )
