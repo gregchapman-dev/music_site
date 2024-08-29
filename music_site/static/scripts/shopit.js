@@ -7,7 +7,7 @@
         jsonBody = await resp.json();
         gScoreMei = jsonBody['mei'];
         renderMusic()
-        await replaceDataUrl(downloadMEITag, gScoreMei, 'Shopped.mei');
+        await replaceDataUrl(downloadMEITag, gScoreMei, 'Score.mei');
     }
 
     function renderMusic() {
@@ -49,6 +49,11 @@
         shopIt('LowerVoices');
     }
 
+    function htmlDecode(input) {
+        var doc = new DOMParser().parseFromString(input, "text/html");
+        return doc.documentElement.textContent;
+    }
+
     async function bytesToBase64DataUrl(bytes, type = "application/octet-stream") {
         return await new Promise((resolve, reject) => {
             const reader = Object.assign(new FileReader(), {
@@ -61,6 +66,9 @@
 
     async function dataUrlToBytes(dataUrl) {
         const res = await fetch(dataUrl);
+        if (!res.ok) {
+            throw new Error(`Response status: ${res.status}`);
+        }
         return new Uint8Array(await res.arrayBuffer());
     }
 
@@ -146,16 +154,12 @@
 //                 adjustPageHeight: true
             });
 //             console.log("Verovio options:", tk.getOptions());
-            meiDataUrl = downloadMEITag.attributes.getNamedItem("href");
-            if (meiDataUrl == "data:plain/text,NothingHere") {
-                gScoreMei = '';
+            initialScore = document.getElementById("initialScore");
+            gScoreMei = htmlDecode(initialScore.text.trim())
+            if (gScoreMei != "") {
+                renderMusic()
+                await replaceDataUrl(downloadMEITag, gScoreMei, 'Score.mei');
             }
-            else {
-                td = new TextDecoder();
-                bytes = await dataUrlToBytes(meiDataUrl)
-                gScoreMei = td.decode(bytes);
-            }
-            renderMusic()
         }
     });
 

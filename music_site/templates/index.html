@@ -13,6 +13,11 @@
         src="{{ url_for('static', filename='scripts/shopit.js') }}"
         defer>
     </script>
+
+    <!-- Initial score to display (provided by server if session found) -->
+    <script id="initialScore" type="plain/text">
+        {{ meiInitialScore }}
+    </script>
     <title>Shop it!</title>
 </head>
 <body>
@@ -30,7 +35,7 @@
 
     <a id="downloadAnchorMusicXML" download href="{{ url_for('musicxml') }}">Download MusicXML</a>
     <a id="downloadAnchorHumdrum" download href="{{ url_for('humdrum') }}">Download Humdrum</a>
-    <a id="downloadAnchorMEI" download href="{{ meiDataURL }}">Download MEI</a>
+    <a id="downloadAnchorMEI" download href="{{ url_for('mei') }}">Download MEI</a>
     <div id="notation"></div>
 </body>
 </html>

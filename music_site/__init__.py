@@ -60,10 +60,9 @@ except OSError:
 
 @app.route('/')
 def index():
-    nothingDataURL: str = 'data:plain/text,NothingHere'
     sessionUUID: str = request.cookies.get('sessionUUID')
     if not sessionUUID:
-        resp = make_response(render_template('index.html', meiDataURL=nothingDataURL))
+        resp = make_response(render_template('index.html', meiInitialScore=''))
         sessionUUID = str(uuid.uuid4())
         fakePerSessionDB[sessionUUID] = {}
         oneMonth: int = 31 * 24 * 3600
@@ -71,7 +70,7 @@ def index():
             'sessionUUID',
             value=sessionUUID,
             max_age=oneMonth,
-            secure=False,
+            secure=True,
             httponly=True
         )
         return resp
@@ -83,13 +82,10 @@ def index():
     sessionData: dict[str, str] = fakePerSessionDB[sessionUUID]
     if 'mei' not in sessionData:
         # no mei score in sessionData
-        return render_template('index.html', meiDataURL=nothingDataURL)
+        return render_template('index.html', meiInitialScore='')
 
     meiStr: str = sessionData['mei']
-    if meiStr:
-        b64Str: str = base64.urlsafe_b64encode(meiStr.encode('utf-8')).decode('utf-8')
-        meiDataURL: str = 'data:plain/text;base64,' + b64Str
-    return render_template('index.html', meiDataURL=meiDataURL)
+    return render_template('index.html', meiInitialScore=meiStr)
 
 
 FMT_TO_FILE_EXT: dict = {
@@ -276,7 +272,8 @@ def musicxml() -> str:
         abort(400, 'Download is invalid: no score uploaded yet.')
 
     musicxmlStr: str = sessionData['musicxml']
-    return send_file(BytesIO(musicxmlStr), download_name='Shopped.musicxml', as_attachment=True )
+    musicxmlBytes: bytes = musicxmlStr.encode()
+    return send_file(BytesIO(musicxmlBytes), download_name='Score.musicxml', as_attachment=True )
 
 @app.route('/humdrum', methods=['GET'])
 def humdrum() -> str:
@@ -292,4 +289,25 @@ def humdrum() -> str:
         abort(400, 'Download is invalid: no score uploaded yet.')
 
     humdrumStr: str = sessionData['humdrum']
-    return send_file(BytesIO(humdrumStr), download_name='Shopped.krn', as_attachment=True )
+    humdrumBytes: bytes = humdrumStr.encode()
+    return send_file(BytesIO(humdrumBytes), download_name='Score.krn', as_attachment=True )
+
+@app.route('/mei', methods=['GET'])
+def mei() -> str:
+    # almost never used; if there is an mei score, the URL that calls this server API will
+    # replaced with a data URL containing the mei data.  The only time this API is called
+    # (at the moment) is if there is no mei score, and this API will fail.
+    sessionUUID: str = request.cookies.get('sessionUUID')
+    if not sessionUUID:
+        abort(400, 'No sessionUUID!')  # should never happen
+
+    if sessionUUID not in fakePerSessionDB:
+        fakePerSessionDB[sessionUUID] = {}
+
+    sessionData: dict[str, str] = fakePerSessionDB[sessionUUID]
+    if 'mei' not in sessionData:
+        abort(400, 'Download is invalid: no score uploaded yet.')
+
+    meiStr: str = sessionData['mei']
+    meiBytes: bytes = meiStr.encode()
+    return send_file(BytesIO(meiBytes), download_name='Score.mei', as_attachment=True )
