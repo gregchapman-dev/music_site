@@ -123,8 +123,18 @@ def getScore(sessionUUID: str) -> m21.stream.Score | None:
     return m21Score
 
 
-def produceResultScores(m21Score: m21.stream.Score, sessionUUID: str, meiStr: str = ''):
+def produceResultScores(m21Score: m21.stream.Score, sessionUUID: str, throughMei: bool = False):
     sessionData: dict[str, str | bytes] = getSessionData(sessionUUID)
+    meiStr: str = ''
+    if throughMei:
+        # we need to import again from MEI, so we get nice xml:ids in
+        # our music21 chordsym (etc) ids.
+        print('producing MEI')
+        meiStr = MusicEngine.toMei(m21Score)
+        print('done producing MEI')
+        print('regenerating m21Score')
+        m21Score = MusicEngine.toMusic21Score(meiStr, 'file.mei')
+        print('done regenerating m21Score')
 
     print('freezing m21Score')
     frozenScore: bytes = MusicEngine.freezeScore(m21Score)
@@ -208,7 +218,7 @@ def command() -> dict:
 
         try:
             shoppedScore = MusicEngine.shopPillarMelodyNotesFromLeadSheet(m21Score, arrType)
-            result = produceResultScores(shoppedScore, sessionUUID)
+            result = produceResultScores(shoppedScore, sessionUUID, throughMei=True)
         except Exception as e:
             print('Failed to shopIt/export')
             raise e
@@ -256,16 +266,8 @@ def score() -> dict:
     # import into music21
     print(f'PUT /score: parsing {fileName}')
     m21Score = MusicEngine.toMusic21Score(fileData, fileName)
-    if not fileName.endswith('.mei'):
-        # we need to import again from MEI, so we get nice xml:ids in
-        # our music21 chordsym (etc) ids.
-        meiStr: str = MusicEngine.toMei(m21Score)
-        m21Score = MusicEngine.toMusic21Score(meiStr, 'file.mei')
-        sessionData: dict[str, str | bytes] = getSessionData(sessionUUID)
-        sessionData['frozen'] = MusicEngine.freezeScore(m21Score)
-
     # export to various formats
-    result = produceResultScores(m21Score, sessionUUID, meiStr=meiStr)
+    result = produceResultScores(m21Score, sessionUUID, throughMei=True)
 #     except Exception:
 #         print('Exception during parse/write')
 #         abort(422, 'Unprocessable music score')  # Unprocessable Content
