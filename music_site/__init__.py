@@ -105,7 +105,7 @@ def getSessionData(sessionUUID: str) -> dict[str, str | bytes]:
 
 def getScore(sessionUUID: str) -> m21.stream.Score | None:
     sessionData: dict[str, str | bytes] = getSessionData(sessionUUID)
-    m21Score: m21.stream.Score
+    m21Score: m21.stream.Score | None = None
     if 'frozen' not in sessionData:
         print('No score to transpose')
         return None
@@ -116,7 +116,7 @@ def getScore(sessionUUID: str) -> m21.stream.Score | None:
         assert isinstance(frozenScore, bytes)
 
     m21Score = MusicEngine.thawScore(frozenScore)
-    if not m21Score.elements or not m21Score.isWellFormedNotation():
+    if m21Score is None or not m21Score.elements or not m21Score.isWellFormedNotation():
         print('Parsed score was not well-formed')
         return None
 

@@ -1154,7 +1154,7 @@ class MusicEngine:
         return output
 
     @staticmethod
-    def thawScore(frozenScore: bytes) -> m21.stream.Score:
+    def thawScore(frozenScore: bytes) -> m21.stream.Score | None:
         st = StreamThawer()
         st.open(frozenScore, zipType='zlib')
         return st.stream
