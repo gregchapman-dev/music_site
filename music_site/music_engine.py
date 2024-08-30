@@ -13,6 +13,7 @@ from music21.common.numberTools import OffsetQL, opFrac
 
 import converter21
 from converter21 import M21Utilities
+from converter21 import StreamFreezer, StreamThawer
 
 # Register the Humdrum and MEI readers/writers from converter21
 converter21.register()
@@ -1142,6 +1143,21 @@ class MusicEngine:
         if t.TYPE_CHECKING:
             assert isinstance(output, m21.stream.Score)
         return output
+
+    @staticmethod
+    def freezeScore(score: m21.stream.Score) -> bytes:
+        sf = StreamFreezer(score)
+        output: str | bytes = sf.write(fmt='pickle', zipType='zlib')
+        if t.TYPE_CHECKING:
+            # because zlib compression returns bytes
+            assert isinstance(output, bytes)
+        return output
+
+    @staticmethod
+    def thawScore(frozenScore: bytes) -> m21.stream.Score:
+        st = StreamThawer()
+        st.open(frozenScore, zipType='zlib')
+        return st.stream
 
     @staticmethod
     def copyObject(obj: m21.base.Music21Object) -> m21.base.Music21Object:
