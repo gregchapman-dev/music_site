@@ -129,11 +129,11 @@ def getTextScoreForSession(key: str, sessionUUID: str, cacheIt: bool = True) -> 
     sessionData: dict[str, bytes] = getSessionData(sessionUUID)
     output: str = ''
 
-    if key in sessionData and sessionData[key]:
-        meiBytes = sessionData[key]
-        if meiBytes:
+    if key in sessionData:
+        zBytes: bytes = sessionData[key]
+        if zBytes:
             try:
-                output = zlib.decompress(meiBytes).decode('utf-8')
+                output = zlib.decompress(zBytes).decode('utf-8')
             except Exception:
                 pass
         if output:
@@ -142,8 +142,7 @@ def getTextScoreForSession(key: str, sessionUUID: str, cacheIt: bool = True) -> 
     # couldn't use sessionData[key] (cached format), regenerate it from 'm21Score'
     m21Score: m21.stream.Score | None = getM21ScoreForSession(sessionUUID)
     if m21Score is None:
-        print('Download is invalid: no score uploaded yet.')
-        abort(400, 'Download is invalid: no score uploaded yet.')
+        return ''
 
     if not m21Score.elements or not m21Score.isWellFormedNotation():
         print('Download is invalid: score is not well-formed')
@@ -301,10 +300,12 @@ def command() -> dict:
         try:
             shoppedScore = MusicEngine.shopPillarMelodyNotesFromLeadSheet(m21Score, arrType)
             result = produceResultScores(shoppedScore, sessionUUID, throughMei=True)
-        except Exception as e:
-            print('Failed to shopIt/export')
-            raise e
-            # abort(422, 'Failed to shopIt/export')
+        except Exception:
+            print('Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords')
+            abort(
+                422,
+                'Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords'
+            )
 
     elif cmd == 'chooseChordOption':
         chordOptionId: str | None = request.form.get('chordOptionId')
