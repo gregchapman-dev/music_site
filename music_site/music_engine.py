@@ -4657,10 +4657,10 @@ class MusicEngine:
 
         csChosen: m21.harmony.ChordSymbol = chosenOption.me_chordsymbol  # type: ignore
         M21Utilities.assureXmlId(csChosen)
-        csChosen.id = csChosen.xml_id  # type: ignore
+        csChosen.id = getattr(csChosen, 'xml_id')
         tePrevious = m21.expressions.TextExpression(prevOptionStr)
         M21Utilities.assureXmlId(tePrevious)
-        tePrevious.id = tePrevious.xml_id  # type: ignore
+        tePrevious.id = getattr(tePrevious, 'xml_id')
         tePrevious.placement = 'above'
         tePrevious.me_chordsymbol = prevOption  # type: ignore
 
