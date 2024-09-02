@@ -1434,7 +1434,82 @@ class MusicEngine:
                     ).stream()
                 )
 
-                partialScore.transpose(interval, inPlace=True)
+                MusicEngine.transposeStream(partialScore, interval, inPlace=True)
+
+    @staticmethod
+    def transposeStream(
+        s: m21.stream.Stream,
+        value: str | int | m21.interval.IntervalBase,
+        /,
+        *,
+        inPlace=False,
+        recurse=True,
+        classFilterList=None
+    ):
+        # This is a modified copy of m21.stream.base.transpose.  The modification is
+        # (1) when transposing a ChordSymbol, we also transpose cs.c21_full_text, if
+        # present, and
+        # (2) if a TextExpression contains te.me_chordsymbol, then we transpose that
+        # ChordSymbol, and regenerate the TextExpression contents from it (thus
+        # "transposing" the TextExpression).
+        # only change the copy
+        if not inPlace:
+            post = s.coreCopyAsDerivation('transpose')
+        else:
+            post = s
+
+        intv: m21.interval.Interval | m21.interval.GenericInterval
+        if isinstance(value, (int, str)):
+            intv = m21.interval.Interval(value)
+        elif isinstance(value, m21.interval.ChromaticInterval):
+            intv = m21.interval.Interval(chromatic=value)
+        elif isinstance(value, m21.interval.DiatonicInterval):
+            intv = m21.interval.Interval(diatonic=value)
+        else:
+            if t.TYPE_CHECKING:
+                assert isinstance(value, (m21.interval.GenericInterval, m21.interval.Interval))
+            intv = value
+
+        # this will get all elements at this level and downward.
+        sIterator: m21.stream.iterator.StreamIterator
+        if recurse is True:
+            sIterator = post.recurse()
+        else:
+            sIterator = post.iter()
+
+        if classFilterList:
+            sIterator = sIterator.addFilter(m21.stream.filters.ClassFilter(classFilterList))
+
+        for e in sIterator:
+            if e.isStream:
+                continue
+            if hasattr(e, 'transpose'):
+                if isinstance(intv, m21.interval.GenericInterval):
+                    # do not transpose KeySignatures w/ Generic Intervals
+                    if not isinstance(e, m21.key.KeySignature) and hasattr(e, 'pitches'):
+                        k = e.getContextByClass(m21.key.KeySignature)
+                        p: m21.pitch.Pitch
+                        for p in e.pitches:
+                            intv.transposePitchKeyAware(p, k, inPlace=True)
+                else:
+                    e.transpose(intv, inPlace=True)
+
+                if isinstance(e, m21.harmony.ChordSymbol):
+                    # it has been transposed, update the full text (if present)
+                    if hasattr(e, 'c21_full_text'):
+                        # change the root/bass of c21_full_text to match the new cs.root()/bass()
+                        M21Utilities.updateChordSymbolFullText(e)
+
+            elif isinstance(e, m21.expressions.TextExpression):
+                if hasattr(e, 'me_chordsymbol'):
+                    # transpose the chordsymbol, and update the TextExpression to match
+                    e.me_chordsymbol.transpose(intv, inPlace=True)
+                    e.content = M21Utilities.convertChordSymbolToText(e.me_chordsymbol)
+
+        if not inPlace:
+            return post
+        else:
+            return None
 
     @staticmethod
     def tryAddingDegree(

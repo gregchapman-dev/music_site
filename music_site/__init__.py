@@ -300,12 +300,13 @@ def command() -> dict:
         try:
             shoppedScore = MusicEngine.shopPillarMelodyNotesFromLeadSheet(m21Score, arrType)
             result = produceResultScores(shoppedScore, sessionUUID, throughMei=True)
-        except Exception:
-            print('Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords')
-            abort(
-                422,
-                'Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords'
-            )
+        except Exception as e:
+            # print('Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords')
+            # abort(
+            #     422,
+            #     'Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords'
+            # )
+            raise e
 
     elif cmd == 'chooseChordOption':
         chordOptionId: str | None = request.form.get('chordOptionId')
