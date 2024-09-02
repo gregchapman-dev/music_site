@@ -2651,7 +2651,7 @@ class MusicEngine:
                         continue
                     csText: str = M21Utilities.convertChordSymbolToText(csOption)
                     csTextExp = m21.expressions.TextExpression(csText)
-#                     csTextExp.me_chordsymbol = csOption  # type: ignore
+                    csTextExp.me_chordsymbol = csOption  # type: ignore
                     csTextExp.placement = 'above'
                     cVoice.insert(startOffsetInVoice, csTextExp)
                     # I would prefer the following, but verovio prints multiple <harm>s
@@ -4628,12 +4628,13 @@ class MusicEngine:
         chosenOption = score.recurse().getElementById(optionId)
         if chosenOption is None:
             raise MusicEngineException(f'chosenOption {chosenOption} not found in score.')
+        if not isinstance(chosenOption, m21.expressions.TextExpression):
+            raise MusicEngineException(f'chosenOption {chosenOption} not TextExpression')
+        if not hasattr(chosenOption, 'me_chordsymbol'):
+            raise MusicEngineException(
+                f'chosenOption {chosenOption} does not have a chord symbol.'
+            )
 
-#         if not hasattr(chosenOption, 'me_chordsymbol'):
-#             raise MusicEngineException(f'chosenOption {chosenOption} is not a chord.')
-
-        if t.TYPE_CHECKING:
-            assert isinstance(chosenOption, m21.expressions.TextExpression)
         print(f'chosenOption == {chosenOption}')
 
         choiceOffsetInScore: OffsetQL = chosenOption.getOffsetInHierarchy(score)
@@ -4654,16 +4655,10 @@ class MusicEngine:
         prevOptionStr: str = M21Utilities.convertChordSymbolToText(prevOption)
         print(f'prevOptionStr == {prevOptionStr}')
 
-        chosenOptionFigure: str = M21Utilities.convertPrintableTextToChordSymbolFigure(
-            chosenOption.content
-        )
-        print(f'chosenOptionFigure == {chosenOptionFigure}')
-
-        csChosen = m21.harmony.ChordSymbol(chosenOptionFigure)
-#         csChosen = chosenOption.me_chordsymbol  # type: ignore
+        csChosen: m21.harmony.ChordSymbol = chosenOption.me_chordsymbol  # type: ignore
         tePrevious = m21.expressions.TextExpression(prevOptionStr)
-#         tePrevious.me_chordsymbol = prevOption  # type: ignore
         tePrevious.placement = 'above'
+        tePrevious.me_chordsymbol = prevOption  # type: ignore
 
         score.replace(prevOption, csChosen, recurse=True)
         score.replace(chosenOption, tePrevious, recurse=True)
