@@ -1200,6 +1200,15 @@ class MusicEngine:
         return output
 
     @staticmethod
+    def copyTextExpression(te: m21.expressions.TextExpression) -> m21.expressions.TextExpression:
+        output: m21.base.Music21Object = MusicEngine.copyObject(te)
+        if t.TYPE_CHECKING:
+            assert isinstance(output, m21.expressions.TextExpression)
+        if hasattr(te, 'me_chordsymbol'):
+            output.me_chordsymbol = MusicEngine.copyChordSymbol(te.me_chordsymbol)  # type: ignore
+        return output
+
+    @staticmethod
     def copyBarline(barline: m21.bar.Barline) -> m21.bar.Barline:
         output: m21.base.Music21Object = MusicEngine.copyObject(barline)
         if t.TYPE_CHECKING:
@@ -2631,6 +2640,7 @@ class MusicEngine:
                 chosenOption = options[chosenIdx]
 
                 M21Utilities.assureXmlId(chosenOption)
+                chosenOption.me_option_number = chosenIdx  # type: ignore
 
                 startOffsetInVoice: OffsetQL = opFrac(
                     hr.startOffset - cVoice.getOffsetInHierarchy(chords)
@@ -2646,20 +2656,19 @@ class MusicEngine:
                 )
 
                 # then add all but the chosen one with the same offset
-                for i, csOption in enumerate(options):
+                i = len(options) - 1
+                for csOption in reversed(options):
                     if i == chosenIdx:
+                        i -= 1
                         continue
+                    csOption.me_option_number = i  # type: ignore
                     csText: str = M21Utilities.convertChordSymbolToText(csOption)
+                    csText = f'{i}:({csText})'
                     csTextExp = m21.expressions.TextExpression(csText)
                     csTextExp.me_chordsymbol = csOption  # type: ignore
                     csTextExp.placement = 'above'
                     cVoice.insert(startOffsetInVoice, csTextExp)
-                    # I would prefer the following, but verovio prints multiple <harm>s
-                    # on top of each other.
-                    # xml:id gets a prepended underscore (they are not chosen).
-                    # M21Utilities.assureXmlId(csOption, prefix='_harm')
-                    # csOption.quarterLength = durQL
-                    # cVoice.insert(startOffsetInVoice, csOption)
+                    i -= 1
 
     @staticmethod
     def replaceChordSymbolPortion(
@@ -3223,10 +3232,19 @@ class MusicEngine:
 
             # Walk all the ChordSymbols in cMeas and put them in tlMeas (so
             # they will display above the top staff).
-            for cs in cMeas.recurse().getElementsByClass(m21.harmony.ChordSymbol):
-                measureStuff.append(cs)
-                offset = cs.getOffsetInHierarchy(cMeas)
-                tlMeas.insert(offset, MusicEngine.copyChordSymbol(cs))
+            for obj in cMeas.recurse().getElementsByClass((
+                    m21.harmony.ChordSymbol,
+                    m21.expressions.TextExpression
+            )):
+                if (isinstance(obj, m21.harmony.ChordSymbol)
+                    or (isinstance(obj, m21.expressions.TextExpression)
+                        and hasattr(obj, 'me_chordsymbol'))):
+                    measureStuff.append(obj)
+                    offset = obj.getOffsetInHierarchy(cMeas)
+                    if isinstance(obj, m21.harmony.ChordSymbol):
+                        tlMeas.insert(offset, MusicEngine.copyChordSymbol(obj))
+                    else:
+                        tlMeas.insert(offset, MusicEngine.copyTextExpression(obj))
 
             # Recurse all elements of mMeas, skipping any measureStuff
             # and any clefs and any LayoutBase (we don't care how the
@@ -4637,19 +4655,56 @@ class MusicEngine:
 
         print(f'chosenOption == {chosenOption}')
 
-        choiceOffsetInScore: OffsetQL = chosenOption.getOffsetInHierarchy(score)
-        prevOptionList: list[m21.harmony.ChordSymbol] = list(
-            score.recurse()
-            .getElementsByOffsetInHierarchy(choiceOffsetInScore)
-            .getElementsByClass(m21.harmony.ChordSymbol)
+        container: m21.stream.Stream | None = score.containerInHierarchy(
+            chosenOption,
+            setActiveSite=False
+
         )
-        if not prevOptionList:
+        if container is None:
+            raise MusicEngineException(f'chosenOption {chosenOption} unexpectedly stream-less')
+
+        choiceOffsetInContainer: OffsetQL = chosenOption.getOffsetInHierarchy(container)
+        optionsList: list[m21.harmony.ChordSymbol] = list(
+            container
+            .getElementsByOffset(choiceOffsetInContainer)
+            .getElementsByClass((m21.harmony.ChordSymbol, m21.expressions.TextExpression))
+        )
+        if not optionsList:
             # nothing was selected?!?
-            raise MusicEngineException('No current chord selection found')
-        if len(prevOptionList) > 1:
+            raise MusicEngineException('No current chord option list found')
+
+        # sort the optionsList by cs.me_option_number
+        def getOptionNumber(obj: m21.harmony.ChordSymbol | m21.expressions.TextExpression) -> int:
+            if isinstance(obj, m21.expressions.TextExpression):
+                return obj.me_chordsymbol.me_option_number  # type: ignore
+            return obj.me_option_number  # type: ignore
+
+        optionsList.sort(key=getOptionNumber)
+
+        numChordSymbols: int = 0
+        numTextExpressions: int = 0
+        prevOption: m21.harmony.ChordSymbol | None = None
+        foundChosenOption: bool = False
+        for option in optionsList:
+            if isinstance(option, m21.harmony.ChordSymbol):
+                prevOption = option
+                numChordSymbols += 1
+            else:
+                if option is chosenOption:
+                    foundChosenOption = True
+                numTextExpressions += 1
+
+        if prevOption is None:
+            # didn't find current chosen option
+            raise MusicEngineException('Previous chord choice not found')
+
+        if numChordSymbols > 1:
             # too many chords selected
             raise MusicEngineException('Multiple simultaneous chord selections found')
-        prevOption: m21.harmony.ChordSymbol = prevOptionList[0]
+
+        if not foundChosenOption:
+            raise MusicEngineException('Unexpected failure to find chosenOption in list.')
+
         print(f'prevOption == {prevOption}')
 
         prevOptionStr: str = M21Utilities.convertChordSymbolToText(prevOption)
@@ -4658,11 +4713,27 @@ class MusicEngine:
         csChosen: m21.harmony.ChordSymbol = chosenOption.me_chordsymbol  # type: ignore
         M21Utilities.assureXmlId(csChosen)
         csChosen.id = getattr(csChosen, 'xml_id')
+        prevOptionStr = f'{prevOption.me_option_number}:({prevOptionStr})'  # type: ignore
         tePrevious = m21.expressions.TextExpression(prevOptionStr)
         M21Utilities.assureXmlId(tePrevious)
         tePrevious.id = getattr(tePrevious, 'xml_id')
         tePrevious.placement = 'above'
         tePrevious.me_chordsymbol = prevOption  # type: ignore
 
-        score.replace(prevOption, csChosen, recurse=True)
-        score.replace(chosenOption, tePrevious, recurse=True)
+        # remove all objects in the list from the container
+        # reinsert all objects (first the chosen cs, then the non-chosen te's in reverse
+        # order of list)
+        container.remove(optionsList)
+        container.insert(choiceOffsetInContainer, csChosen)
+
+        for option in reversed(optionsList):
+            if option is chosenOption:
+                # already inserted (first, as csChosen)
+                continue
+
+            if option is prevOption:
+                # insert the constructed tePrevious in its place
+                container.insert(choiceOffsetInContainer, tePrevious)
+                continue
+
+            container.insert(choiceOffsetInContainer, option)
