@@ -1513,7 +1513,12 @@ class MusicEngine:
                 if hasattr(e, 'me_chordsymbol'):
                     # transpose the chordsymbol, and update the TextExpression to match
                     e.me_chordsymbol.transpose(intv, inPlace=True)
-                    e.content = M21Utilities.convertChordSymbolToText(e.me_chordsymbol)
+                    csText = M21Utilities.convertChordSymbolToText(e.me_chordsymbol)
+                    if hasattr(e.me_chordsymbol, 'me_option_number'):
+                        # maintain the numbering
+                        num: int = e.me_chordsymbol.me_option_number
+                        csText = f'{num}:({csText})'
+                    e.content = csText
 
         if not inPlace:
             return post
