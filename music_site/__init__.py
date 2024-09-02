@@ -23,6 +23,8 @@ from flask import (
 
 import music21 as m21
 
+from converter21 import M21Utilities
+
 from .music_engine import MusicEngine
 from .music_engine import MusicEngineException
 from .music_engine import FourNotes
@@ -214,58 +216,16 @@ def storeMusicXMLScoreForSession(musicXMLStr: str, sessionUUID: str):
     storeTextScoreForSession('musicxml', musicXMLStr, sessionUUID)
 
 
-def gatherOptionalChordSymbols(
-    m21Score: m21.stream.Score,
-    usingId: str
-) -> dict[int | str, m21.harmony.ChordSymbol]:
-    # returns dict[te.id, deepcopy(te.me_chordsymbol)]
-    output: dict[int | str, m21.harmony.ChordSymbol] = {}
-    for te in m21Score[m21.expressions.TextExpression]:
-        if hasattr(te, 'me_chordsymbol'):
-            if hasattr(te, usingId):
-                output[getattr(te, usingId)] = te.me_chordsymbol  # type: ignore
-            else:
-                print('no te.{usingId}')
-    return output
+def produceResultScores(m21Score: m21.stream.Score, sessionUUID: str):
+    # fill out all the xml:ids that are missing,
+    # and copy _all_ xml_id to id (except for voice.id)
+    # This is so the m21Score and any re-imported MEI score have
+    # the same ids no matter what (matching the xml:ids).
+    M21Utilities.assureAllXmlIdsAndIds(m21Score)
 
-
-def restoreOptionalChordSymbols(
-    m21Score: m21.stream.Score,
-    chordOptions: dict[int | str, m21.harmony.ChordSymbol],
-    usingId: str
-):
-    # we deepcopy the chord symbols because they shouldn't be in two scores at the same time.
-    for te in m21Score[m21.expressions.TextExpression]:
-        if hasattr(te, usingId):
-            teId: str = getattr(te, usingId)
-            if teId in chordOptions:
-                te.me_chordsymbol = deepcopy(  # type: ignore
-                    chordOptions[teId]
-                )
-
-def produceResultScores(m21Score: m21.stream.Score, sessionUUID: str, throughMei: bool = False):
-    meiStr: str = ''
-    if throughMei:
-        # we need to import again from MEI, so we get nice xml:ids in
-        # our music21 chordsym (etc) ids.  Gather/restore our te.me_chordsymbols
-        # before/after the export/import operation.
-        chordOptions: dict[int | str, m21.harmony.ChordSymbol] = (
-            gatherOptionalChordSymbols(m21Score, usingId='xml_id')
-        )
-
-        print('producing MEI')
-        meiStr = MusicEngine.toMei(m21Score)
-        print('done producing MEI')
-        print('regenerating m21Score')
-        m21Score = MusicEngine.toMusic21Score(meiStr, 'file.mei')
-        print('done regenerating m21Score')
-
-        restoreOptionalChordSymbols(m21Score, chordOptions, usingId='id')
-
-    if not meiStr:
-        print('producing MEI')
-        meiStr = MusicEngine.toMei(m21Score)
-        print('done producing MEI')
+    print('producing MEI')
+    meiStr = MusicEngine.toMei(m21Score)
+    print('done producing MEI')
 
     storeM21ScoreForSession(m21Score, sessionUUID, clearCachedFormats=True)
     storeMeiScoreForSession(meiStr, sessionUUID)
@@ -336,7 +296,7 @@ def command() -> dict:
 
         try:
             shoppedScore = MusicEngine.shopIt(m21Score, arrType)
-            result = produceResultScores(shoppedScore, sessionUUID, throughMei=True)
+            result = produceResultScores(shoppedScore, sessionUUID)
         except Exception as e:
             # print('Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords')
             # abort(
@@ -388,7 +348,7 @@ def score() -> dict:
     print(f'PUT /score: parsing {fileName}')
     m21Score = MusicEngine.toMusic21Score(fileData, fileName)
     # export to various formats
-    result = produceResultScores(m21Score, sessionUUID, throughMei=True)
+    result = produceResultScores(m21Score, sessionUUID)
 #     except Exception:
 #         print('Exception during parse/write')
 #         abort(422, 'Unprocessable music score')  # Unprocessable Content
