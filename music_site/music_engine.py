@@ -2857,7 +2857,7 @@ class MusicEngine:
                             currOffset = opFrac(currOffset + split.quarterLength)
 
     @staticmethod
-    def shopPillarMelodyNotesFromLeadSheet(
+    def shopIt(
         inLeadSheet: m21.stream.Score,
         arrType: ArrangementType
     ) -> m21.stream.Score:
