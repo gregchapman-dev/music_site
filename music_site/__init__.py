@@ -86,12 +86,14 @@ def index() -> Response | str:
         return resp
 
     # there is a sessionUUID; respond with the resulting score (mei for now, maybe humdrum later)
-    meiStr: str = getMeiScoreForSession(sessionUUID)
-    if not meiStr:
-        # no mei score in session
-        return render_template('index.html', meiInitialScore='')
+    me: MusicEngine = getMusicEngineForSession(sessionUUID)
+    if me.m21Score is not None:
+        meiStr: str = getMeiScoreForSession(sessionUUID, me)
+        if meiStr:
+            return render_template('index.html', meiInitialScore=meiStr)
 
-    return render_template('index.html', meiInitialScore=meiStr)
+    # no score in session
+    return render_template('index.html', meiInitialScore='')
 
 
 FMT_TO_FILE_EXT: dict = {
@@ -109,18 +111,24 @@ def getSessionData(sessionUUID: str) -> dict[str, bytes]:
     return fakePerSessionDB[sessionUUID]
 
 
-def getMusicEngineForSession(sessionUUID: str) -> MusicEngine | None:
+def getMusicEngineForSession(sessionUUID: str) -> MusicEngine:
     sessionData: dict[str, bytes] = getSessionData(sessionUUID)
     me: MusicEngine | None = None
-    if 'musicEngine' not in sessionData:
-        print('No session score found.')
-        return None
+    if 'musicEngine' in sessionData:
+        frozenEngine: bytes = sessionData['musicEngine']
+        if frozenEngine:
+            me = MusicEngine.thaw(frozenEngine)
+    if me is None:
+        # nothing in sessionData, make one, and put it in sessionData
+        me = MusicEngine()
 
-    frozenEngine: bytes = sessionData['musicEngine']
-    me = MusicEngine.thaw(frozenEngine)
     return me
 
-def getTextScoreForSession(key: str, sessionUUID: str, cacheIt: bool = True) -> str:
+def getTextScoreForSession(
+    key: str,
+    sessionUUID: str,
+    me: MusicEngine | None,
+) -> str:
     if key not in ('mei', 'humdrum', 'musicxml'):
         return ''
 
@@ -137,15 +145,11 @@ def getTextScoreForSession(key: str, sessionUUID: str, cacheIt: bool = True) -> 
         if output:
             return output
 
-    # couldn't use sessionData[key] (cached format), regenerate it from 'musicEngine'
-    me: MusicEngine | None = getMusicEngineForSession(sessionUUID)
-    if me is None or me.m21Score is None:
-        print('Download is invalid: there is no current score.')
-        abort(422, 'Download is invalid: there is no current score.')
-
-    if not me.m21Score.elements or not me.m21Score.isWellFormedNotation():
-        print('Download is invalid: score is not well-formed')
-        abort(422, 'Download is invalid: score is not well-formed')
+    # couldn't use sessionData[key] (cached format), regenerate it from music engine instance
+    if me is None:
+        me = getMusicEngineForSession(sessionUUID)
+    if me.m21Score is None:
+        return ''
 
     if key == 'mei':
         output = me.toMei()
@@ -154,25 +158,24 @@ def getTextScoreForSession(key: str, sessionUUID: str, cacheIt: bool = True) -> 
     else:
         output = me.toHumdrum()
 
-    if cacheIt:
-        try:
-            sessionData[key] = zlib.compress(output.encode('utf-8'))
-        except Exception:
-            pass
+    try:
+        sessionData[key] = zlib.compress(output.encode('utf-8'))
+    except Exception:
+        pass
 
     return output
 
 
-def getMeiScoreForSession(sessionUUID: str) -> str:
-    return getTextScoreForSession('mei', sessionUUID)
+def getMeiScoreForSession(sessionUUID: str, me: MusicEngine | None = None) -> str:
+    return getTextScoreForSession('mei', sessionUUID, me)
 
 
-def getHumdrumScoreForSession(sessionUUID: str) -> str:
-    return getTextScoreForSession('humdrum', sessionUUID)
+def getHumdrumScoreForSession(sessionUUID: str, me: MusicEngine | None = None) -> str:
+    return getTextScoreForSession('humdrum', sessionUUID, me)
 
 
-def getMusicXMLScoreForSession(sessionUUID: str) -> str:
-    return getTextScoreForSession('musicxml', sessionUUID)
+def getMusicXMLScoreForSession(sessionUUID: str, me: MusicEngine | None = None) -> str:
+    return getTextScoreForSession('musicxml', sessionUUID, me)
 
 
 def storeMusicEngineForSession(
@@ -212,7 +215,7 @@ def storeMusicXMLScoreForSession(musicXMLStr: str, sessionUUID: str):
     storeTextScoreForSession('musicxml', musicXMLStr, sessionUUID)
 
 
-def produceResultScores(me: MusicEngine, sessionUUID: str):
+def produceResultScores(me: MusicEngine, sessionUUID: str) -> dict[str, str]:
     # fill out all the xml:ids that are missing,
     # and copy _all_ xml_id to id (except for voice.id).
     # This is so the m21Score and the MEI score have
@@ -241,7 +244,7 @@ def command() -> dict:
         abort(400, 'No sessionUUID!')  # should never happen
 
     me: MusicEngine | None = None
-    result: dict[str, bytes] = {}
+    result: dict[str, str] = {}
 
     # it's a command (like 'transpose'), maybe with some command-defined parameters
     cmd: str = request.form.get('command', '')
@@ -343,7 +346,7 @@ def score() -> dict:
     fileName: str = request.form['filename']
     fileData: str | bytes = file.read()
     print(f'PUT /score: first 100 bytes of {fileName}: {fileData[0:100]!r}')
-    result: dict[str, bytes] = {}
+    result: dict[str, str] = {}
 #     try:
     # import into music21
     print(f'PUT /score: parsing {fileName}')

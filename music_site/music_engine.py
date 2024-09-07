@@ -6,7 +6,6 @@ import pickle
 import music21 as m21
 
 import converter21
-from converter21 import StreamFreezer, StreamThawer
 
 from . import MusicEngineException
 from . import ArrangementType
@@ -26,8 +25,8 @@ class ScoreState:
         self.shoppedPartRanges: dict[PartName, VocalRange] | None = None
 
 class MusicEngine:
-    def __init__(self, score: m21.stream.Score | None):
-        self.m21Score: m21.stream.Score | None = score
+    def __init__(self) -> None:
+        self.m21Score: m21.stream.Score | None = None
         self.scoreState: ScoreState = ScoreState()
 
         # undoList is a list of commands that will back out recent changes
@@ -37,8 +36,9 @@ class MusicEngine:
         self.redoList: list[dict[str, t.Any]] = []
 
     def freeze(self) -> bytes:
-        sf: StreamFreezer = StreamFreezer(self.m21Score)
-        storage: dict[str, t.Any] = sf.packStream()
+        storage: dict[str, t.Any] = {}
+        if self.m21Score is not None:
+            storage['m21Score'] = MusicEngineUtilities.freezeScore(self.m21Score)
         storage['scoreState'] = self.scoreState
         storage['undoList'] = self.undoList
         storage['redoList'] = self.redoList
@@ -48,22 +48,24 @@ class MusicEngine:
 
     @classmethod
     def thaw(cls, frozenEngine: bytes):
-        st: StreamThawer = StreamThawer()
         uncompressed: bytes = zlib.decompress(frozenEngine)
         storage: dict[str, t.Any] = pickle.loads(uncompressed)
 
-        me = cls(None)
-        me.m21Score = st.unpackStream(storage)
-        me.scoreState = storage['scoreState']
-        me.undoList = storage['undoList']
-        me.redoList = storage['redoList']
+        me = cls()
+        if 'm21Score' in storage and storage['m21Score']:
+            me.m21Score = MusicEngineUtilities.thawScore(storage['m21Score'])
+            me.scoreState = storage['scoreState']
+            me.undoList = storage['undoList']
+            me.redoList = storage['redoList']
 
         return me
 
     @classmethod
     def fromFileData(cls, fileData: str | bytes, fileName: str):
         m21Score: m21.stream.Score = MusicEngineUtilities.toMusic21Score(fileData, fileName)
-        return cls(m21Score)
+        me = cls()
+        me.m21Score = m21Score
+        return me
 
     def toMusicXML(self) -> str:
         if self.m21Score is not None:
