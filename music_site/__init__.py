@@ -25,12 +25,15 @@ import music21 as m21
 
 from converter21 import M21Utilities
 
+from .music_engine_utilities import MusicEngineException
+from .music_engine_utilities import ArrangementType
+from .music_engine_utilities import PartName
+from .music_engine_utilities import FourNotes
+from .music_engine_utilities import VocalRange
+from .music_engine_utilities import VocalRangeInfo
+from .music_engine_utilities import MusicEngineUtilities
+
 from .music_engine import MusicEngine
-from .music_engine import MusicEngineException
-from .music_engine import FourNotes
-from .music_engine import ArrangementType
-from .music_engine import VocalRange
-from .music_engine import VocalRangeInfo
 
 # Factory function.  flask knows how to find this (it has a standard
 # name) when passed music_site on the flask command line, e.g.
@@ -106,24 +109,16 @@ def getSessionData(sessionUUID: str) -> dict[str, bytes]:
     return fakePerSessionDB[sessionUUID]
 
 
-def getM21ScoreForSession(sessionUUID: str) -> m21.stream.Score | None:
+def getMusicEngineForSession(sessionUUID: str) -> MusicEngine | None:
     sessionData: dict[str, bytes] = getSessionData(sessionUUID)
-    m21Score: m21.stream.Score | None = None
-    if 'm21Score' not in sessionData:
+    me: MusicEngine | None = None
+    if 'musicEngine' not in sessionData:
         print('No session score found.')
         return None
 
-    frozenScore: str | bytes = sessionData['m21Score']
-    if t.TYPE_CHECKING:
-        # 'frozen' always contains bytes
-        assert isinstance(frozenScore, bytes)
-
-    m21Score = MusicEngine.thawScore(frozenScore)
-    if m21Score is None or not m21Score.elements or not m21Score.isWellFormedNotation():
-        print('Parsed score was not well-formed')
-        return None
-
-    return m21Score
+    frozenEngine: bytes = sessionData['musicEngine']
+    me = MusicEngine.thaw(frozenEngine)
+    return me
 
 def getTextScoreForSession(key: str, sessionUUID: str, cacheIt: bool = True) -> str:
     if key not in ('mei', 'humdrum', 'musicxml'):
@@ -142,21 +137,22 @@ def getTextScoreForSession(key: str, sessionUUID: str, cacheIt: bool = True) -> 
         if output:
             return output
 
-    # couldn't use sessionData[key] (cached format), regenerate it from 'm21Score'
-    m21Score: m21.stream.Score | None = getM21ScoreForSession(sessionUUID)
-    if m21Score is None:
-        return ''
+    # couldn't use sessionData[key] (cached format), regenerate it from 'musicEngine'
+    me: MusicEngine | None = getMusicEngineForSession(sessionUUID)
+    if me is None or me.m21Score is None:
+        print('Download is invalid: there is no current score.')
+        abort(422, 'Download is invalid: there is no current score.')
 
-    if not m21Score.elements or not m21Score.isWellFormedNotation():
+    if not me.m21Score.elements or not me.m21Score.isWellFormedNotation():
         print('Download is invalid: score is not well-formed')
         abort(422, 'Download is invalid: score is not well-formed')
 
     if key == 'mei':
-        output = MusicEngine.toMei(m21Score)
+        output = me.toMei()
     elif key == 'musicxml':
-        output = MusicEngine.toMusicXML(m21Score)
+        output = me.toMusicXML()
     else:
-        output = MusicEngine.toHumdrum(m21Score)
+        output = me.toHumdrum()
 
     if cacheIt:
         try:
@@ -179,16 +175,16 @@ def getMusicXMLScoreForSession(sessionUUID: str) -> str:
     return getTextScoreForSession('musicxml', sessionUUID)
 
 
-def storeM21ScoreForSession(
-    m21Score: m21.stream.Score,
+def storeMusicEngineForSession(
+    me: MusicEngine,
     sessionUUID: str,
     clearCachedFormats: bool = True
 ):
     sessionData: dict[str, bytes] = getSessionData(sessionUUID)
     print('freezing m21Score')
-    frozenScore: bytes = MusicEngine.freezeScore(m21Score)
-    print('done freezing m21Score')
-    sessionData['m21Score'] = frozenScore
+    frozenEngine: bytes = me.freeze()
+    print('done freezing music engine')
+    sessionData['musicEngine'] = frozenEngine
 
     if clearCachedFormats:
         # clear the cached formats of the score
@@ -216,19 +212,22 @@ def storeMusicXMLScoreForSession(musicXMLStr: str, sessionUUID: str):
     storeTextScoreForSession('musicxml', musicXMLStr, sessionUUID)
 
 
-def produceResultScores(m21Score: m21.stream.Score, sessionUUID: str):
+def produceResultScores(me: MusicEngine, sessionUUID: str):
     # fill out all the xml:ids that are missing,
-    # and copy _all_ xml_id to id (except for voice.id)
-    # This is so the m21Score and any re-imported MEI score have
-    # the same ids no matter what (matching the xml:ids).
-    M21Utilities.assureAllXmlIdsAndIds(m21Score)
+    # and copy _all_ xml_id to id (except for voice.id).
+    # This is so the m21Score and the MEI score have
+    # the same ids no matter what (so clicks on the
+    # website will map correctly to m21Score objects).
+    if me.m21Score is not None:
+        M21Utilities.assureAllXmlIdsAndIds(me.m21Score)
 
-    print('producing MEI')
-    meiStr = MusicEngine.toMei(m21Score)
-    print('done producing MEI')
+        print('producing MEI')
+        meiStr = me.toMei()
+        print('done producing MEI')
 
-    storeM21ScoreForSession(m21Score, sessionUUID, clearCachedFormats=True)
-    storeMeiScoreForSession(meiStr, sessionUUID)
+    storeMusicEngineForSession(me, sessionUUID, clearCachedFormats=True)
+    if meiStr:
+        storeMeiScoreForSession(meiStr, sessionUUID)
 
     return {
         'mei': meiStr
@@ -241,7 +240,9 @@ def command() -> dict:
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
 
+    me: MusicEngine | None = None
     result: dict[str, bytes] = {}
+
     # it's a command (like 'transpose'), maybe with some command-defined parameters
     cmd: str = request.form.get('command', '')
     print(f'command: cmd = "{cmd}"')
@@ -261,14 +262,14 @@ def command() -> dict:
             print(f'Invalid transpose (invalid semitones specified: "{semitonesStr}")')
             abort(400, 'Invalid transpose (invalid semitones specified)')
 
-        transposeScore: m21.stream.Score | None = getM21ScoreForSession(sessionUUID)
-        if transposeScore is None:
+        me = getMusicEngineForSession(sessionUUID)
+        if me is None or me.m21Score is None:
             abort(400, 'No score to transpose')
 
         try:
             print('transposing music21 score')
-            MusicEngine.transposeInPlace(transposeScore, semitones)
-            result = produceResultScores(transposeScore, sessionUUID)
+            me.transposeInPlace(semitones)
+            result = produceResultScores(me, sessionUUID)
         except Exception:
             print('Failed to transpose/export')
             abort(422, 'Failed to transpose/export')  # Unprocessable Content
@@ -290,13 +291,13 @@ def command() -> dict:
             abort(400,
                 f'Invalid shopIt (invalid arrangementType specified: "{arrangementTypeStr}")')
 
-        m21Score: m21.stream.Score | None = getM21ScoreForSession(sessionUUID)
-        if m21Score is None:
+        me = getMusicEngineForSession(sessionUUID)
+        if me is None or me.m21Score is None:
             abort(400, 'No score to shop')
 
         try:
-            shoppedScore = MusicEngine.shopIt(m21Score, arrType)
-            result = produceResultScores(shoppedScore, sessionUUID)
+            me.shopIt(arrType)
+            result = produceResultScores(me, sessionUUID)
         except Exception as e:
             # print('Failed to shop; perhaps leadsheet doesn\'t have an obvious melody or chords')
             # abort(
@@ -310,13 +311,13 @@ def command() -> dict:
         if not chordOptionId:
             abort(400, 'Invalid chooseChordOption (no chordOptionId specified)')
 
-        m21Score = getM21ScoreForSession(sessionUUID)
-        if m21Score is None:
+        me = getMusicEngineForSession(sessionUUID)
+        if me is None or me.m21Score is None:
             abort(400, 'No score to modify')
 
         try:
-            MusicEngine.chooseChordOption(m21Score, chordOptionId)
-            result = produceResultScores(m21Score, sessionUUID)
+            me.chooseChordOption(chordOptionId)
+            result = produceResultScores(me, sessionUUID)
         except Exception as e:
             print('Failed to chooseChordOption')
             raise e
@@ -346,9 +347,9 @@ def score() -> dict:
 #     try:
     # import into music21
     print(f'PUT /score: parsing {fileName}')
-    m21Score = MusicEngine.toMusic21Score(fileData, fileName)
+    me: MusicEngine = MusicEngine.fromFileData(fileData, fileName)
     # export to various formats
-    result = produceResultScores(m21Score, sessionUUID)
+    result = produceResultScores(me, sessionUUID)
 #     except Exception:
 #         print('Exception during parse/write')
 #         abort(422, 'Unprocessable music score')  # Unprocessable Content
@@ -361,7 +362,7 @@ def musicxml() -> Response:
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
     musicxmlStr: str = getMusicXMLScoreForSession(sessionUUID)
-    musicxmlBytes: bytes = musicxmlStr.encode()
+    musicxmlBytes: bytes = musicxmlStr.encode('utf-8')
     return send_file(BytesIO(musicxmlBytes), download_name='Score.musicxml', as_attachment=True)
 
 @app.route('/humdrum', methods=['GET'])
@@ -370,18 +371,15 @@ def humdrum() -> Response:
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
     humdrumStr: str = getHumdrumScoreForSession(sessionUUID)
-    humdrumBytes: bytes = humdrumStr.encode()
+    humdrumBytes: bytes = humdrumStr.encode('utf-8')
     return send_file(BytesIO(humdrumBytes), download_name='Score.krn', as_attachment=True)
 
 @app.route('/mei', methods=['GET'])
 def mei() -> Response:
-    # Almost never used; if there is an mei score for the session, the client generally
-    # already has it (and knows it). The only time this API is called (at the moment) is
-    # if there is no mei score for the session, and this API will fail.
     sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
         abort(400, 'No sessionUUID!')  # should never happen
 
     meiStr: str = getMeiScoreForSession(sessionUUID)
-    meiBytes: bytes = meiStr.encode()
+    meiBytes: bytes = meiStr.encode('utf-8')
     return send_file(BytesIO(meiBytes), download_name='Score.mei', as_attachment=True)
