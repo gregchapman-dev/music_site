@@ -125,10 +125,11 @@ class MusicEngine:
         if self.m21Score is None:
             raise MusicEngineException('Cannot choose chord option: there is no score.')
 
-        if self.scoreState.shoppedAs is None:
+        if self.scoreState.shoppedPartRanges is None:
             raise MusicEngineException('Cannot choose chord option: the score is not shopped.')
 
-        undoOptionId: str = MusicEngineUtilities.chooseChordOption(self.m21Score, optionId)
+        undoOptionId: str = MusicEngineUtilities.chooseChordOption(
+            self.m21Score, optionId, self.scoreState.shoppedPartRanges)
         self.undoList.append({
             'command': 'chooseChordOption',
             'optionId': undoOptionId

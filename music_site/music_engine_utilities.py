@@ -496,6 +496,51 @@ class HarmonyRange:
         self._chord: m21.harmony.ChordSymbol | None = chord
         self._melodyNote: m21.note.GeneralNote | None = melodyNote
 
+    @classmethod
+    def fromObjects(
+        cls,
+        score: m21.stream.Score,
+        melodyNote: m21.note.Note,
+        melodyMeas: m21.stream.Measure,
+        chord: m21.harmony.ChordSymbol,
+        chordMeas: m21.stream.Measure
+    ):
+        # Find the overlap between the note and the chordsymbol
+        melodyNoteStartOffset: OffsetQL = melodyNote.getOffsetInHierarchy(score)
+        melodyNoteEndOffset: OffsetQL = opFrac(
+            melodyNoteStartOffset + melodyNote.quarterLength
+        )
+        csStartOffset: OffsetQL = chord.getOffsetInHierarchy(score)
+        csEndOffset: OffsetQL = opFrac(
+            csStartOffset + chord.quarterLength
+        )
+
+        hrStartOffset: OffsetQL = max(melodyNoteStartOffset, csStartOffset)
+        hrEndOffset: OffsetQL = min(melodyNoteEndOffset, csEndOffset)
+        hrDurQL: OffsetQL = opFrac(hrEndOffset - hrStartOffset)
+        if hrDurQL <= 0:
+            raise MusicEngineException('HarmonyRange must have positive duration')
+
+        chordMeasStartOffsetInScore: OffsetQL = chordMeas.getOffsetInHierarchy(score)
+        if chordMeas is not melodyMeas:
+            if chordMeasStartOffsetInScore != melodyMeas.getOffsetInHierarchy(score):
+                raise MusicEngineException('chordMeas and melodyMeas are not simultaneous')
+        startOffsetInMeas: OffsetQL = opFrac(hrStartOffset - chordMeasStartOffsetInScore)
+        endOffsetInMeas: OffsetQL = opFrac(startOffsetInMeas + hrDurQL)
+
+        hr = cls(
+            hrStartOffset,
+            hrEndOffset,
+            chord,
+            melodyNote,
+            chordMeas,
+            melodyMeas,
+            startOffsetInMeas,
+            endOffsetInMeas
+        )
+
+        return hr
+
     def __repr__(self) -> str:
         return (f'[{self.startOffset} .. {self.endOffset}]: '
             + f'chord={self._chord}, melodyNote={self._melodyNote}')
@@ -2796,7 +2841,55 @@ class MusicEngineUtilities:
             leadSheet.remove(d, recurse=True)
 
     @staticmethod
-    def makeAccidentals(shoppedVoices: list[FourVoices]):
+    def getShoppedVoices(shopped: m21.stream.Score) -> list[FourVoices]:
+        shoppedVoices: list[FourVoices] = []
+        if len(shopped.parts) != 2:
+            raise MusicEngineException(
+                'score is not shopped (must have exactly 2 parts)'
+            )
+
+        tenorVoices: list[m21.stream.Voice] = []
+        leadVoices: list[m21.stream.Voice] = []
+        bariVoices: list[m21.stream.Voice] = []
+        bassVoices: list[m21.stream.Voice] = []
+
+        for p, part in enumerate(shopped.parts):
+            for m in part.getElementsByClass(m21.stream.Measure):
+                if len(m.voices) != 2:
+                    raise MusicEngineException(
+                        'score is not shopped (must have exactly 2 voices per measure)'
+                    )
+                for v, voice in enumerate(m.voices):
+                    if p == 0:
+                        if v == 0:
+                            tenorVoices.append(voice)
+                        else:  # v == 1
+                            leadVoices.append(voice)
+                    else:  # p == 1
+                        if v == 0:
+                            bariVoices.append(voice)
+                        else:  # v == 1
+                            bassVoices.append(voice)
+
+        if (len(tenorVoices) != len(leadVoices)
+                or len(bariVoices) != len(leadVoices)
+                or len(bassVoices) != len(leadVoices)):
+            raise MusicEngineException(
+                'score is not shopped (must have same number of measures in each voice)'
+            )
+
+        for tenor, lead, bari, bass in zip(tenorVoices, leadVoices, bariVoices, bassVoices):
+            shoppedVoices.append(FourVoices(tenor=tenor, lead=lead, bari=bari, bass=bass))
+
+        return shoppedVoices
+
+    @staticmethod
+    def makeAccidentals(shopped: list[FourVoices] | m21.stream.Score):
+        if isinstance(shopped, m21.stream.Score):
+            shoppedVoices = MusicEngineUtilities.getShoppedVoices(shopped)
+        else:
+            shoppedVoices = shopped
+
         currMeasure: FourVoices
         for mIdx, currMeasure in enumerate(shoppedVoices):
             # prevMeasure is the previous measure of all four voices (to look
@@ -4737,7 +4830,13 @@ class MusicEngineUtilities:
         return harmonyGaps
 
     @staticmethod
-    def chooseChordOption(score: m21.stream.Score, optionId: str) -> str:
+    def chooseChordOption(
+        score: m21.stream.Score,
+        optionId: str,
+        partRanges: dict[PartName, VocalRange]
+    ) -> str:
+        # Returns the "undo" optionId, the id of the TextExpression that represents
+        # the ChordSymbol that was previously chosen.
         chosenOption = score.recurse().getElementById(optionId)
         if chosenOption is None:
             raise MusicEngineException(f'optionId {optionId} not found in score.')
@@ -4753,7 +4852,6 @@ class MusicEngineUtilities:
         container: m21.stream.Stream | None = score.containerInHierarchy(
             chosenOption,
             setActiveSite=False
-
         )
         if container is None:
             raise MusicEngineException(f'chosenOption {chosenOption} unexpectedly stream-less')
@@ -4806,6 +4904,7 @@ class MusicEngineUtilities:
         print(f'prevOptionStr == {prevOptionStr}')
 
         csChosen: m21.harmony.ChordSymbol = chosenOption.me_chordsymbol  # type: ignore
+        csChosen.quarterLength = prevOption.quarterLength
         M21Utilities.assureXmlId(csChosen)
         csChosen.id = getattr(csChosen, 'xml_id')
         prevOptionStr = f'{prevOption.me_option_number}:({prevOptionStr})'  # type: ignore
@@ -4836,33 +4935,185 @@ class MusicEngineUtilities:
 
             container.insert(choiceOffsetInContainer, option)
 
-#         # chord is selected; let's re-harmonize the lead note.
-#         MusicEngineUtilities.harmonizePillarChordBass(
-#             partRanges,
-#             currVoices,
-#             harmonyOffsetInVoice,
-#             harmonyQL,
-#             chord,
-#             thisFourNotes,
-#             prevFourNotes
-#         )
-#         MusicEngineUtilities.harmonizePillarChordTenor(
-#             partRanges,
-#             currVoices,
-#             harmonyOffsetInVoice,
-#             harmonyQL,
-#             chord,
-#             thisFourNotes,
-#             prevFourNotes
-#         )
-#         MusicEngineUtilities.harmonizePillarChordBari(
-#             partRanges,
-#             currVoices,
-#             harmonyOffsetInVoice,
-#             harmonyQL,
-#             chord,
-#             thisFourNotes,
-#             prevFourNotes
-#         )
+        # chord is selected; let's re-harmonize around the lead note.
+        MusicEngineUtilities.reharmonizeChordAt(
+            score, container, csChosen, choiceOffsetInContainer, partRanges
+        )
 
         return undoOptionId
+
+    @staticmethod
+    def findAssociatedMeasures(
+        m: m21.stream.Measure,
+        score: m21.stream.Score
+    ) -> tuple[list[m21.stream.Measure], list[m21.stream.Measure]]:
+        # returns measure stack that includes m, and previous measure stack
+
+        parts: list[m21.stream.Part] = list(score.parts)
+        if not parts:
+            return [], []
+
+        mOffset: OffsetQL = m.getOffsetInHierarchy(score)
+
+        prevMeasureStack: list[m21.stream.Measure] = []
+        currMeasureStack: list[m21.stream.Measure] = []
+        for part in parts:
+            prev: m21.stream.Measure | None = None
+            for meas in part.getElementsByClass(m21.stream.Measure):
+                if meas.getOffsetInHierarchy(score) == mOffset:
+                    currMeasureStack.append(meas)
+                    if prev:
+                        prevMeasureStack.append(prev)
+
+        return currMeasureStack, prevMeasureStack
+
+    @staticmethod
+    def getFourVoices(mStack: list[m21.stream.Measure]) -> FourVoices | None:
+        tenor: m21.stream.Voice | None = None
+        lead: m21.stream.Voice | None = None
+        bari: m21.stream.Voice | None = None
+        bass: m21.stream.Voice | None = None
+
+        for m in mStack:
+            for v in m.voices:
+                if v.c21_label == 'tenor':  # type: ignore
+                    tenor = v
+                    continue
+                if v.c21_label == 'lead':  # type: ignore
+                    lead = v
+                    continue
+                if v.c21_label == 'bari':  # type: ignore
+                    bari = v
+                    continue
+                if v.c21_label == 'bass':  # type: ignore
+                    bass = v
+                    continue
+
+        if tenor is None or lead is None or bari is None or bass is None:
+            return None
+
+        return FourVoices(tenor=tenor, lead=lead, bari=bari, bass=bass)
+
+    @staticmethod
+    def reharmonizeChordAt(
+        score: m21.stream.Score,
+        s: m21.stream.Stream,
+        csChosen: m21.harmony.ChordSymbol,
+        offset: OffsetQL,
+        partRanges: dict[PartName, VocalRange]
+    ):
+        m: m21.stream.Stream | None = None
+        if isinstance(s, m21.stream.Voice):
+            # s is the lead voice, get the enclosing measure
+            m = score.containerInHierarchy(s, setActiveSite=False)
+            if not isinstance(m, m21.stream.Measure):
+                raise MusicEngineException('cannot find enclosing measure')
+        elif isinstance(s, m21.stream.Measure):
+            m = s
+        else:
+            raise MusicEngineException('chosen option is not in a measure')
+
+        if t.TYPE_CHECKING:
+            assert m is not None
+
+        currMeasStack: list[m21.stream.Measure]
+        prevMeasStack: list[m21.stream.Measure]
+        currMeasStack, prevMeasStack = MusicEngineUtilities.findAssociatedMeasures(m, score)
+        if len(currMeasStack) != 2:
+            # shopped scores have exactly 2 measures at a time (tenor/lead and bari/bass)
+            raise MusicEngineException(
+                f'chordOption location incorrectly has {len(currMeasStack)} current measures'
+            )
+        if prevMeasStack and len(prevMeasStack) != 2:
+            raise MusicEngineException(
+                f'chordOption location incorrectly has {len(prevMeasStack)} previous measures'
+            )
+
+        currVoices: FourVoices | None = MusicEngineUtilities.getFourVoices(currMeasStack)
+        if currVoices is None:
+            raise MusicEngineException('could not get 4 voices from measure')
+
+        prevVoices: FourVoices | None = None
+        if prevMeasStack:
+            prevVoices = MusicEngineUtilities.getFourVoices(prevMeasStack)
+
+        leadNote: m21.base.Music21Object | None = (
+            currVoices.lead.getElementAtOrBefore(offset, m21.note.Note)
+        )
+        if not isinstance(leadNote, m21.note.Note):
+            raise MusicEngineException('could not find lead note at or before chordsymbol')
+        if opFrac(leadNote.offset + leadNote.quarterLength) <= offset:
+            raise MusicEngineException('could not find lead note overlapping chordsymbol')
+
+        hr: HarmonyRange = HarmonyRange.fromObjects(
+            score,
+            leadNote,
+            m,
+            csChosen,
+            m
+        )
+
+        harmonyOffsetInVoice: OffsetQL = opFrac(
+            hr.startOffset - m.getOffsetInHierarchy(score)
+        )
+        harmonyQL: OffsetQL = opFrac(hr.endOffset - hr.startOffset)
+
+        thisFourNotes: FourNotes = MusicEngineUtilities.getFourNotesAtOffset(
+            currVoices, harmonyOffsetInVoice
+        )
+        prevFourNotes: FourNotes = MusicEngineUtilities.getFourNotesBeforeOffset(
+            currVoices, prevVoices, harmonyOffsetInVoice
+        )
+
+        # remove thisFourNotes[tenor, bari, bass] from the appropriate voices, and
+        # recompute thisFourNotes.
+        if thisFourNotes.tenor is not None:
+            currVoices.tenor.remove(thisFourNotes.tenor)
+        if thisFourNotes.bari is not None:
+            currVoices.bari.remove(thisFourNotes.bari)
+        if thisFourNotes.bass is not None:
+            currVoices.bass.remove(thisFourNotes.bass)
+
+        thisFourNotes = MusicEngineUtilities.getFourNotesAtOffset(
+            currVoices, harmonyOffsetInVoice
+        )
+        # Finally, let's re-harmonize the lead note.
+        chord: Chord = Chord(csChosen)
+        MusicEngineUtilities.harmonizePillarChordBass(
+            partRanges,
+            currVoices,
+            harmonyOffsetInVoice,
+            harmonyQL,
+            chord,
+            thisFourNotes,
+            prevFourNotes
+        )
+        thisFourNotes = MusicEngineUtilities.getFourNotesAtOffset(
+            currVoices, harmonyOffsetInVoice
+        )
+        MusicEngineUtilities.harmonizePillarChordTenor(
+            partRanges,
+            currVoices,
+            harmonyOffsetInVoice,
+            harmonyQL,
+            chord,
+            thisFourNotes,
+            prevFourNotes
+        )
+        thisFourNotes = MusicEngineUtilities.getFourNotesAtOffset(
+            currVoices, harmonyOffsetInVoice
+        )
+        MusicEngineUtilities.harmonizePillarChordBari(
+            partRanges,
+            currVoices,
+            harmonyOffsetInVoice,
+            harmonyQL,
+            chord,
+            thisFourNotes,
+            prevFourNotes
+        )
+        thisFourNotes = MusicEngineUtilities.getFourNotesAtOffset(
+            currVoices, harmonyOffsetInVoice
+        )
+
+        MusicEngineUtilities.makeAccidentals(score)
