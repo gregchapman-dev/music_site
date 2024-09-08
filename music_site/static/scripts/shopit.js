@@ -8,7 +8,6 @@
             jsonBody = await resp.json();
             gScoreMei = jsonBody['mei'];
             renderMusic();
-            await replaceDataUrl(downloadMEITag, gScoreMei, 'Score.mei');
         }
     }
 
@@ -72,11 +71,6 @@
             throw new Error(`Response status: ${res.status}`);
         }
         return new Uint8Array(await res.arrayBuffer());
-    }
-
-    async function replaceDataUrl(anchorTag, text, name) {
-        anchorTag.download = name;
-        anchorTag.href = await bytesToBase64DataUrl(text);
     }
 
     function handleFiles() {
@@ -160,7 +154,6 @@
             gScoreMei = htmlDecode(initialScore.text.trim())
             if (gScoreMei != "") {
                 renderMusic()
-                await replaceDataUrl(downloadMEITag, gScoreMei, 'Score.mei');
             }
         }
     });
