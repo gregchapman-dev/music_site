@@ -7,6 +7,7 @@
         if (resp.ok) {
             jsonBody = await resp.json();
             gScoreMei = jsonBody['mei'];
+            console.log("rendering score from response")
             renderMusic();
         }
     }
@@ -15,6 +16,9 @@
         if (gScoreMei != '') {
             let svg = tk.renderData(gScoreMei, {});
             document.getElementById("notation").innerHTML = svg;
+        }
+        else {
+            console.error("no score to render!")
         }
     }
 
@@ -53,24 +57,6 @@
     function htmlDecode(input) {
         var doc = new DOMParser().parseFromString(input, "text/html");
         return doc.documentElement.textContent;
-    }
-
-    async function bytesToBase64DataUrl(bytes, type = "application/octet-stream") {
-        return await new Promise((resolve, reject) => {
-            const reader = Object.assign(new FileReader(), {
-                onload: () => resolve(reader.result),
-                onerror: () => reject(reader.error),
-            });
-            reader.readAsDataURL(new File([bytes], "", { type }));
-        });
-    }
-
-    async function dataUrlToBytes(dataUrl) {
-        const res = await fetch(dataUrl);
-        if (!res.ok) {
-            throw new Error(`Response status: ${res.status}`);
-        }
-        return new Uint8Array(await res.arrayBuffer());
     }
 
     function handleFiles() {
@@ -120,10 +106,7 @@
                 break;
             }
             if (target.nodeName === "g"
-                    && target.id.startsWith("dir-")) {  // ultimately "harm-", but "dir-" for now
-                if (target.id.endsWith("_")) {  // "_" means already selected
-                    break;
-                }
+                    && target.id.startsWith("dir-")) {
                 chooseNewChordOption(target);
                 break;
             }
@@ -136,7 +119,7 @@
     let tk;
 
     document.addEventListener("DOMContentLoaded", (event) => {
-        verovio.module.onRuntimeInitialized = async () => {
+        verovio.module.onRuntimeInitialized = () => {
             tk = new verovio.toolkit();
             console.log("Verovio has loaded!");
 //             console.log("Verovio default options:", tk.getDefaultOptions());
@@ -153,7 +136,11 @@
             initialScore = document.getElementById("initialScore");
             gScoreMei = htmlDecode(initialScore.text.trim())
             if (gScoreMei != "") {
+                console.log("rendering initialScore")
                 renderMusic()
+            }
+            else {
+                console.log("no initialScore to render")
             }
         }
     });
