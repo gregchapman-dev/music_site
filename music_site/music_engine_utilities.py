@@ -476,9 +476,9 @@ class HarmonyRange:
         startOffsetInMelodyMeas: OffsetQL
     ):
         if startOffset == MAX_OFFSETQL:
-            raise MusicEngineException('oops')
+            raise MusicEngineException('no HarmonyRange startOffset')
         if endOffset == MAX_OFFSETQL:
-            raise MusicEngineException('oops')
+            raise MusicEngineException('no HarmonyRange endOffset')
 
         self.startOffset: OffsetQL = startOffset
         self.endOffset: OffsetQL = endOffset
@@ -1158,8 +1158,7 @@ class MusicEngineUtilities:
                 with zipfile.ZipFile(BytesIO(fileData), 'r') as f:
                     newData: str | bytes = MusicEngineUtilities._extractContents(f, fmt)
                     if not newData:
-                        # will turn into abort(422, 'Unprocessable music score')
-                        raise MusicEngineException
+                        raise MusicEngineException('mxl file was corrupt')
                     fileData = newData
                 pass
             else:
@@ -2660,7 +2659,7 @@ class MusicEngineUtilities:
 
                 cVoice = chords.containerInHierarchy(cso, setActiveSite=False)
                 if cVoice is None:
-                    raise MusicEngineException('cso not in chords')
+                    raise MusicEngineException('cso not in chords part')
 
                 cVoice.remove(cso)
 

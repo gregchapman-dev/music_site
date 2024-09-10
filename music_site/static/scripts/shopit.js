@@ -3,17 +3,31 @@
 //     let gScoreHumdrum;   // for uploading with commands (it's way smaller)
     let gScoreMei = '';       // for rendering with verovio
 
-    async function processMusicFromResponse(resp) {
+    function containsScore(mei) {
+        return mei !== undefined and mei != ''
+    }
+
+    async function processResponse(resp) {
         if (resp.ok) {
             jsonBody = await resp.json();
+            showUser = jsonBody['showUser']  // a string
+            // 888 figure out how to display text in template html (document.something = showUser)
+
+            appendToConsole = jsonBody['appendToConsole']
+            if (appendToConsole !== undefined) {
+                console.log(appendToConsole);
+            }
+
             gScoreMei = jsonBody['mei'];
-            console.log("rendering score from response")
-            renderMusic();
+            if (containsScore(gScoreMei)) {
+                console.log("rendering score from response")
+                renderMusic();
+            }
         }
     }
 
     function renderMusic() {
-        if (gScoreMei != '') {
+        if (containsScore(gScoreMei)) {
             let svg = tk.renderData(gScoreMei, {});
             document.getElementById("notation").innerHTML = svg;
         }
@@ -30,7 +44,7 @@
             '/command',
             {method: 'POST', body: formData }
         ).then( async (resp) => {
-            await processMusicFromResponse(resp);
+            await processResponse(resp);
         });
     }
 
@@ -42,7 +56,7 @@
             '/command',
             {method: 'POST', body: formData }
         ).then( async (resp) => {
-            await processMusicFromResponse(resp);
+            await processResponse(resp);
         });
     }
 
@@ -80,7 +94,7 @@
                 '/score',
                 {method: 'POST', body: formData }
             );
-            await processMusicFromResponse(resp);
+            await processResponse(resp);
         };
         reader.readAsBinaryString(selectedFile);
     }
@@ -88,14 +102,12 @@
     function chooseNewChordOption(target) {
         formData = new FormData();
         formData.append('command', 'chooseChordOption');
-        formData.append('score', gScoreMei);
-        formData.append('format', 'mei');
         formData.append('chordOptionId', target.id)
         fetch(
             '/command',
             {method: 'POST', body: formData }
         ).then( async (resp) => {
-            await processMusicFromResponse(resp);
+            await processResponse(resp);
         });
     }
 
@@ -135,7 +147,7 @@
 //             console.log("Verovio options:", tk.getOptions());
             initialScore = document.getElementById("initialScore");
             gScoreMei = htmlDecode(initialScore.text.trim())
-            if (gScoreMei != "") {
+            if (containsScore(gScoreMei)) {
                 console.log("rendering initialScore")
                 renderMusic()
             }
