@@ -4,7 +4,7 @@
     let gScoreMei = '';       // for rendering with verovio
 
     function containsScore(mei) {
-        return mei !== undefined and mei != ''
+        return (mei !== undefined && mei != '')
     }
 
     async function processResponse(resp) {
