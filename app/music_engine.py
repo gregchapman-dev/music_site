@@ -7,11 +7,11 @@ import music21 as m21
 
 import converter21
 
-from . import MusicEngineException
-from . import ArrangementType
-from . import PartName
-from . import VocalRange
-from . import MusicEngineUtilities
+from app import MusicEngineException
+from app import ArrangementType
+from app import PartName
+from app import VocalRange
+from app import MusicEngineUtilities
 
 # Register the Humdrum and MEI readers/writers from converter21
 converter21.register()

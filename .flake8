@@ -5,6 +5,7 @@ ignore=
   E301,
   E302,
   E303,
+  E402,
   E501,
   E722,
   E731,
@@ -20,6 +21,7 @@ ignore=
 #  E301,  # 0 blank lines -- good test but something going wrong in new algorithm
 #  E302,  # blank lines
 #  E303,  # blank lines
+#  E402,  # module level import not at top of file (Flask apps do this)
 #  E501,  # let pylint check line length
 #  E722,  # let pylint check bare except
 #  E731,  # do not assign a lambda
