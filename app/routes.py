@@ -215,7 +215,7 @@ def mei() -> Response | dict:
 
 
 def createNewAnonymousSession(sessionUUID: str) -> AnonymousSession:
-    session = AnonymousSession(sessionUUID)
+    session = AnonymousSession(sessionUUID=sessionUUID)
     db.session.add(session)
     db.session.commit()
     return session
