@@ -1,4 +1,3 @@
-import os
 import uuid
 import zlib
 from io import BytesIO
@@ -13,7 +12,8 @@ from flask import (
 
 from converter21 import M21Utilities
 
-from app import app
+from app import app, db
+from app.models import AnonymousSession
 
 from .music_engine_utilities import ArrangementType
 
@@ -25,22 +25,15 @@ from .music_engine import MusicEngine
 # fakePerSessionDB is keyed by sessionUUID, and the value is a session dict that
 # contains some of the following:
 # {
-#   'm21Score': pickledAndZippedMusic21Score,
-#   'mei': meiString,
-#   'humdrum': humdrumString,
-#   'musicxml': musicxmlString
+#   'musicEngine': pickledAndZippedMusicEngine,  # (may include m21Score)
+#   'mei': meiZippedBytes,
+#   'humdrum': humdrumZippedBytes,
+#   'musicxml': musicxmlZippedBytes
 # }
 # Because it is faked with a dict, everytime we restart the server, it goes away.
 # It also doesn't support multiple instances of the server (since each will have
 # its own fake DB).  But good enough for now, to test out the new flow.
 fakePerSessionDB: dict[str, dict[str, bytes]] = {}
-
-# ensure the instance folder exists
-try:
-    os.makedirs(app.instance_path)
-except OSError:
-    pass
-
 
 @app.route('/')
 def index() -> Response | str:
@@ -210,12 +203,9 @@ def mei() -> Response | dict:
 
 
 # "database" access routines (keyed by sessionUUID)
-def getSessionData(sessionUUID: str) -> dict[str, bytes]:
-    # 888 someday this will do database stuff, so we can restart the server and not lose sessions.
-    if sessionUUID not in fakePerSessionDB:
-        fakePerSessionDB[sessionUUID] = {}
-    return fakePerSessionDB[sessionUUID]
-
+def getSessionData(sessionUUID: str) -> AnonymousSession | None:
+    data: AnonymousSession | None = db.session.get(AnonymousSession, sessionUUID)
+    return data
 
 def getMusicEngineForSession(sessionUUID: str) -> MusicEngine:
     sessionData: dict[str, bytes] = getSessionData(sessionUUID)
