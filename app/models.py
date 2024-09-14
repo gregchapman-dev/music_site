@@ -2,13 +2,10 @@ import sqlalchemy as sa
 import sqlalchemy.orm as so
 from app import db
 
-class User(db.Model):  # type: ignore
-    id: so.Mapped[int] = so.mapped_column(primary_key=True)
-    username: so.Mapped[str] = so.mapped_column(sa.String(64), index=True,
-                                                unique=True)
-    email: so.Mapped[str] = so.mapped_column(sa.String(120), index=True,
-                                             unique=True)
-    password_hash: so.Mapped[str | None] = so.mapped_column(sa.String(256))
+class AnonymousSession(sa.Model):  # type: ignore
+    sessionUUID: so.Mapped[str] = so.mapped_column(sa.String(128), primary_key=True)
+    sessionState: so.Mapped[bytes] = so.mapped_column(db.LargeBinary)
 
     def __repr__(self):
-        return '<User {}>'.format(self.username)
+        return f'<Anon {self.sessionUUID}>'
+
