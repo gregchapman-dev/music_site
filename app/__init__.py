@@ -20,6 +20,11 @@ from flask import (
     send_file
 )
 
+from config import Config
+# from flask_sqlalchemy import SQLAlchemy
+# from flask_migrate import Migrate
+
+
 import music21 as m21
 
 from converter21 import M21Utilities
@@ -39,13 +44,14 @@ from .music_engine import MusicEngine
 #       flask --app music_site run --debug
 
 # create and configure the app
-app = Flask(__name__, instance_relative_config=True)
-app.config.from_mapping(
-    SECRET_KEY='dev',
-    # DATABASE=os.path.join(app.instance_path, 'flaskr.sqlite'),
-)
+app = Flask(__name__)
+app.config.from_object(Config)
+# db = SQLAlchemy(app)
+# migrate = Migrate(app, db)
 
-app.config.from_pyfile('config.py', silent=True)
+# The following will be last line of the file; app/routes.py and app/models.py will
+# contain the rest of what is currently in here...
+# from app import routes, models
 
 # fakePerSessionDB is keyed by sessionUUID, and the value is a session dict that
 # contains some of the following:
