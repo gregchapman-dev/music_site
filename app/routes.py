@@ -257,7 +257,7 @@ def getCompressedBytesFromString(string: str) -> bytes:
 
 def getMeiScoreForSession(session: AnonymousSession, me: MusicEngine | None = None) -> str:
     output: str = ''
-    if session.mei is not None:
+    if session.mei:
         output = getStringFromCompressedBytes(session.mei)
     else:
         if me is None:
@@ -273,7 +273,7 @@ def getMeiScoreForSession(session: AnonymousSession, me: MusicEngine | None = No
 
 def getHumdrumScoreForSession(session: AnonymousSession, me: MusicEngine | None = None) -> str:
     output: str = ''
-    if session.humdrum is not None:
+    if session.humdrum:
         output = getStringFromCompressedBytes(session.humdrum)
     else:
         if me is None:
@@ -288,7 +288,7 @@ def getHumdrumScoreForSession(session: AnonymousSession, me: MusicEngine | None 
 
 def getMusicXMLScoreForSession(session: AnonymousSession, me: MusicEngine | None = None) -> str:
     output: str = ''
-    if session.musicxml is not None:
+    if session.musicxml:
         output = getStringFromCompressedBytes(session.musicxml)
     else:
         if me is None:
