@@ -18,6 +18,7 @@ cycler==0.11.0
 defusedxml==0.7.1
 dill==0.3.6
 docutils==0.19
+dotenv==0.0.5
 exceptiongroup==1.0.4
 fastjsonschema==2.16.3
 -e git+https://github.com/gregchapman-dev/fcpxml.git@8560ffc5542b14b67968b958d9b0ce0a8c80379b#egg=fcpxml
@@ -51,7 +52,7 @@ matplotlib==3.6.2
 mccabe==0.7.0
 mistune==2.0.5
 more-itertools==9.0.0
--e git+https://github.com/gregchapman-dev/music_site.git@597c8b76c9d390e6447ce9a6db90a13168297ad7#egg=music_site
+-e git+https://github.com/gregchapman-dev/music_site.git@d37b02f7cf1e7cbb60f4cad2ca80d55cb35420ff#egg=music_site
 -e git+https://github.com/gregchapman-dev/music21.git@204e9d0b9eec2f2d6ff8d8d3b13c41f912050604#egg=music21
 -e git+https://github.com/gregchapman-dev/musicdiff.git@0ba675f36a1c38fe93c8a3380a20e9677daadddf#egg=musicdiff
 mypy==1.4.0
