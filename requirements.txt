@@ -1,4 +1,5 @@
 alabaster==0.7.13
+alembic==1.13.2
 astroid==2.15.1
 attrs==22.1.0
 Babel==2.12.1
@@ -22,6 +23,8 @@ fastjsonschema==2.16.3
 -e git+https://github.com/gregchapman-dev/fcpxml.git@8560ffc5542b14b67968b958d9b0ce0a8c80379b#egg=fcpxml
 flake8==6.0.0
 Flask==3.0.2
+Flask-Migrate==4.0.7
+Flask-SQLAlchemy==3.1.1
 fonttools==4.38.0
 idna==3.4
 imagesize==1.4.1
@@ -42,12 +45,13 @@ kiwisolver==1.4.4
 lazy-object-proxy==1.8.0
 Levenshtein==0.20.8
 lxml==4.9.2
+Mako==1.3.5
 MarkupSafe==2.1.2
 matplotlib==3.6.2
 mccabe==0.7.0
 mistune==2.0.5
 more-itertools==9.0.0
--e git+https://github.com/gregchapman-dev/music_site.git@835f701c4bcfab94be6a737d5301a9a085e8fcb0#egg=music_site
+-e git+https://github.com/gregchapman-dev/music_site.git@597c8b76c9d390e6447ce9a6db90a13168297ad7#egg=music_site
 -e git+https://github.com/gregchapman-dev/music21.git@204e9d0b9eec2f2d6ff8d8d3b13c41f912050604#egg=music21
 -e git+https://github.com/gregchapman-dev/musicdiff.git@0ba675f36a1c38fe93c8a3380a20e9677daadddf#egg=musicdiff
 mypy==1.4.0
@@ -91,6 +95,7 @@ sphinxcontrib-htmlhelp==2.0.1
 sphinxcontrib-jsmath==1.0.1
 sphinxcontrib-qthelp==1.0.3
 sphinxcontrib-serializinghtml==1.1.5
+SQLAlchemy==2.0.34
 tinycss2==1.2.1
 tomli==2.0.1
 tomlkit==0.11.6
@@ -99,7 +104,7 @@ traitlets==5.9.0
 twine==4.0.2
 types-requests==2.28.11.8
 types-urllib3==1.26.25.4
-typing_extensions==4.4.0
+typing_extensions==4.12.2
 urllib3==1.26.12
 webcolors==1.12
 webencodings==0.5.1
