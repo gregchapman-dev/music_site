@@ -52,7 +52,7 @@ matplotlib==3.6.2
 mccabe==0.7.0
 mistune==2.0.5
 more-itertools==9.0.0
--e git+https://github.com/gregchapman-dev/music_site.git@d37b02f7cf1e7cbb60f4cad2ca80d55cb35420ff#egg=music_site
+-e git+https://github.com/gregchapman-dev/music_site.git@25ec6452e4640b739420e75cb7dee8daa415c5f6#egg=music_site
 -e git+https://github.com/gregchapman-dev/music21.git@204e9d0b9eec2f2d6ff8d8d3b13c41f912050604#egg=music21
 -e git+https://github.com/gregchapman-dev/musicdiff.git@0ba675f36a1c38fe93c8a3380a20e9677daadddf#egg=musicdiff
 mypy==1.4.0
@@ -103,6 +103,7 @@ tomlkit==0.11.6
 tornado==6.2
 traitlets==5.9.0
 twine==4.0.2
+types-Flask-Migrate==4.0.0.20240311
 types-requests==2.28.11.8
 types-urllib3==1.26.25.4
 typing_extensions==4.12.2
