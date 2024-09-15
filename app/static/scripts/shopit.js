@@ -155,21 +155,27 @@
         initialScore = document.getElementById("initialScore");
         gScoreMei = htmlDecode(initialScore.text.trim())
         if (containsScore(gScoreMei)) {
-            console.log("rendering initialScore")
-            renderMusic()
+            console.log("loaded initialScore into gScoreMei")
         }
         else {
-            console.log("no initialScore to render")
+            console.log("no initialScore")
         }
         verovio.module.onRuntimeInitialized = () => {
             assureVerovioInitialized()
             if (containsScore(gScoreMei)) {
-                console.log("re-rendering initialScore")
+                console.log("rendering initialScore (in verovio..onRuntimeInitialized)")
                 renderMusic()
             }
             else {
-                console.log("no initialScore to re-render")
+                console.log("no initialScore to render (in verovio..onRuntimeInitialized)")
             }
+        }
+        if (containsScore(gScoreMei)) {
+            console.log("attempting to render initialScore (in DOMContentLoaded)")
+            renderMusic()
+        }
+        else {
+            console.log("no initialScore to render (in DOMContentLoaded)")
         }
     });
 
