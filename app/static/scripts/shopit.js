@@ -28,6 +28,7 @@
 
     function renderMusic() {
         if (containsScore(gScoreMei)) {
+            let tk = assureVerovioInitialized()
             let svg = tk.renderData(gScoreMei, {});
             document.getElementById("notation").innerHTML = svg;
         }
@@ -126,25 +127,32 @@
         }
     }
 
-    // ----------- main code ----------------
+    let verovioToolkit;
 
-    let tk;
+    function assureVerovioInitialized() {
+        if (verovioToolkit) {
+            return verovioToolkit
+        }
+        verovioToolkit = new verovio.toolkit();
+        console.log("Verovio has loaded!");
+//             console.log("Verovio default options:", verovioToolkit.getDefaultOptions());
+        verovioToolkit.setOptions({
+//                 breaks: "none",
+            scale: 30,
+//                 landscape: true,
+            scaleToPageSize: true,
+            pageWidth: 1000,
+//                 adjustPageWidth: true,
+//                 adjustPageHeight: true
+        });
+//             console.log("Verovio options:", verovioToolkit.getOptions());
+    }
+
+    // ----------- main code ----------------
 
     document.addEventListener("DOMContentLoaded", (event) => {
         verovio.module.onRuntimeInitialized = () => {
-            tk = new verovio.toolkit();
-            console.log("Verovio has loaded!");
-//             console.log("Verovio default options:", tk.getDefaultOptions());
-            tk.setOptions({
-//                 breaks: "none",
-                scale: 30,
-//                 landscape: true,
-                scaleToPageSize: true,
-                pageWidth: 1000,
-//                 adjustPageWidth: true,
-//                 adjustPageHeight: true
-            });
-//             console.log("Verovio options:", tk.getOptions());
+            assureVerovioInitialized()
             initialScore = document.getElementById("initialScore");
             gScoreMei = htmlDecode(initialScore.text.trim())
             if (containsScore(gScoreMei)) {
