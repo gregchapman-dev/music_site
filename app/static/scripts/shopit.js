@@ -131,6 +131,7 @@
 
     function assureVerovioInitialized() {
         if (verovioToolkit) {
+            console.log("Verovio was already loaded.")
             return verovioToolkit
         }
         verovioToolkit = new verovio.toolkit();
@@ -161,6 +162,7 @@
             console.log("no initialScore")
         }
         verovio.module.onRuntimeInitialized = () => {
+            console.log("verovio.module.onRuntimeInitialized fired.")
             assureVerovioInitialized()
             if (containsScore(gScoreMei)) {
                 console.log("rendering initialScore (in verovio..onRuntimeInitialized)")
