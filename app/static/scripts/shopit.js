@@ -152,16 +152,23 @@
     // ----------- main code ----------------
 
     document.addEventListener("DOMContentLoaded", (event) => {
+        initialScore = document.getElementById("initialScore");
+        gScoreMei = htmlDecode(initialScore.text.trim())
+        if (containsScore(gScoreMei)) {
+            console.log("rendering initialScore")
+            renderMusic()
+        }
+        else {
+            console.log("no initialScore to render")
+        }
         verovio.module.onRuntimeInitialized = () => {
             assureVerovioInitialized()
-            initialScore = document.getElementById("initialScore");
-            gScoreMei = htmlDecode(initialScore.text.trim())
             if (containsScore(gScoreMei)) {
-                console.log("rendering initialScore")
+                console.log("re-rendering initialScore")
                 renderMusic()
             }
             else {
-                console.log("no initialScore to render")
+                console.log("no initialScore to re-render")
             }
         }
     });
