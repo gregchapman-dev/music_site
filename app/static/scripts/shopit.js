@@ -32,6 +32,7 @@
             if (tk === undefined) {
                 console.log("renderMusic failed to initialize verovio; will try again later.")
                 setTimeout(function() {
+                    console.log("trying to renderMusic again later")
                     renderMusic;
                 }, 5000)
                 return
