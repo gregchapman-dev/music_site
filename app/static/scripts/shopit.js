@@ -30,11 +30,11 @@
         if (containsScore(gScoreMei)) {
             let tk = assureVerovioInitialized()
             if (tk === undefined) {
-                console.log("renderMusic failed to initialize verovio; will try again later.")
-                setTimeout(function() {
-                    console.log("trying to renderMusic again later")
-                    renderMusic();
-                }, 5000)
+                console.log("renderMusic failed to initialize verovio; refresh page to fix.")
+//                 setTimeout(function() {
+//                     console.log("trying to renderMusic again later")
+//                     renderMusic();
+//                 }, 5000)
                 return
             }
             let svg = tk.renderData(gScoreMei, {});
