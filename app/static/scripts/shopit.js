@@ -29,6 +29,13 @@
     function renderMusic() {
         if (containsScore(gScoreMei)) {
             let tk = assureVerovioInitialized()
+            if (tk === undefined) {
+                console.log("renderMusic failed to initialize verovio; will try again later.")
+                setTimeout(function() {
+                    renderMusic;
+                }, 5000)
+                return
+            }
             let svg = tk.renderData(gScoreMei, {});
             document.getElementById("notation").innerHTML = svg;
         }
@@ -130,12 +137,21 @@
     let verovioToolkit;
 
     function assureVerovioInitialized() {
-        if (verovioToolkit) {
+        if (verovioToolkit !== undefined) {
             console.log("Verovio was already loaded.")
             return verovioToolkit
         }
-        verovioToolkit = new verovio.toolkit();
-        console.log("Verovio has loaded!");
+
+        try {
+            console.log("Trying to load Verovio toolkit.")
+            verovioToolkit = new verovio.toolkit();
+        }
+        catch (e) {
+            console.log("Verovio toolkit load failed, will retry later.")
+            return undefined
+        }
+
+        console.log("Verovio toolkit has loaded!");
 //             console.log("Verovio default options:", verovioToolkit.getDefaultOptions());
         verovioToolkit.setOptions({
 //                 breaks: "none",
