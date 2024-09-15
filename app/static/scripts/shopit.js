@@ -146,6 +146,7 @@
 //                 adjustPageHeight: true
         });
 //             console.log("Verovio options:", verovioToolkit.getOptions());
+        return verovioToolkit
     }
 
     // ----------- main code ----------------
