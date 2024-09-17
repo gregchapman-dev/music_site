@@ -27,6 +27,7 @@ from .music_engine import MusicEngine
 def index() -> Response | str:
     sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
+        print('index: no uuid')
         resp = make_response(render_template('index.html', meiInitialScore=''))
         # create a new database entry for a new anonymous session
         sessionUUID = str(uuid.uuid4())
@@ -40,8 +41,10 @@ def index() -> Response | str:
             secure=True,
             httponly=True
         )
+        print('index response: new uuid = {sessionUUID}, no initial score')
         return resp
 
+    print('index: uuid = {sessionUUID}')
     # there is a sessionUUID; respond with the resulting score (mei for now, maybe humdrum later)
     session: AnonymousSession | None = getSession(sessionUUID, create=True)
     if t.TYPE_CHECKING:
@@ -55,14 +58,17 @@ def index() -> Response | str:
     if me.m21Score is not None:
         meiStr: str = getMeiScoreForSession(session, me)
         if meiStr:
+            print('index response: uuid = {sessionUUID}, initialScore[:100] = {meiStr[:100]}')
             return render_template('index.html', meiInitialScore=meiStr)
 
     # no score in session
+    print('index response: uuid = {sessionUUID}, no initialScore')
     return render_template('index.html', meiInitialScore='')
 
 @app.route('/command', methods=['POST'])
 def command() -> dict:
     sessionUUID: str | None = request.cookies.get('sessionUUID')
+    print(f'command: uuid = {sessionUUID}')
     if not sessionUUID:
         return produceErrorResult('No sessionUUID!')  # should never happen
     session: AnonymousSession | None = getSession(sessionUUID)
@@ -74,11 +80,12 @@ def command() -> dict:
 
     # it's a command (like 'transpose'), maybe with some command-defined parameters
     cmd: str = request.form.get('command', '')
-    print(f'command: cmd = "{cmd}"')
+    print(f'command: uuid = {sessionUUID}, cmd = {cmd}')
     if cmd == 'transpose':
         semitonesStr: str = request.form.get('semitones', '')
-        print(f'command: semitonesStr = {semitonesStr}')
+        print(f'{cmd}-{sessionUUID}: semitonesStr = {semitonesStr}')
         if not semitonesStr:
+            print(f'{cmd}-{sessionUUID} response: Invalid transpose (no semitones specified)')
             return produceErrorResult('Invalid transpose (no semitones specified)')
 
         semitones: int | None = None
@@ -88,25 +95,33 @@ def command() -> dict:
             pass
 
         if semitones is None:
+            print(
+                f'{cmd}-{sessionUUID} response: Invalid transpose '
+                f'(invalid semitones: "{semitonesStr}")'
+            )
             return produceErrorResult(
                 f'Invalid transpose (invalid semitones specified: "{semitonesStr}")'
             )
 
         me = getMusicEngineForSession(session)
         if me is None or me.m21Score is None:
+            print(f'{cmd}-{sessionUUID} response: No score to transpose')
             return produceErrorResult('No score to transpose')
 
         try:
-            print('transposing music21 score')
+            print(f'{cmd}-{sessionUUID}: transposing music21 score')
             me.transposeInPlace(semitones)
+            print(f'{cmd}-{sessionUUID} response: success')
             result = produceResultScores(me, session)
         except Exception as e:
+            print(f'{cmd}-{sessionUUID} response: Failed to transpose/export: {e}')
             return produceErrorResult(f'Failed to transpose/export: {e}')
 
     elif cmd == 'shopIt':
         arrangementTypeStr: str = request.form.get('arrangementType', '')
-        print(f'command: arrangementTypeStr = {arrangementTypeStr}')
+        print(f'{cmd}-{sessionUUID}: arrangementTypeStr = "{arrangementTypeStr}"')
         if not arrangementTypeStr:
+            print(f'{cmd}-{sessionUUID} response: Invalid shopIt (no arrangementType specified)')
             return produceErrorResult('Invalid shopIt (no arrangementType specified)')
 
         arrType: ArrangementType
@@ -115,48 +130,75 @@ def command() -> dict:
         elif arrangementTypeStr == 'LowerVoices':
             arrType = ArrangementType.LowerVoices
         else:
+            print(
+                f'{cmd}-{sessionUUID} response: Invalid shopIt (invalid arrangementType '
+                f'specified: "{arrangementTypeStr}")'
+            )
             return produceErrorResult(
                 f'Invalid shopIt (invalid arrangementType specified: "{arrangementTypeStr}")'
             )
 
         me = getMusicEngineForSession(session)
         if me is None or me.m21Score is None:
+            print(f'{cmd}-{sessionUUID} response: No score to shop')
             return produceErrorResult('No score to shop')
 
         try:
+            print(f'{cmd}-{sessionUUID} response: Shopping score')
             me.shopIt(arrType)
             result = produceResultScores(me, session)
+            print(f'{cmd}-{sessionUUID} response: Success')
         except Exception as e:
-            return produceErrorResult(f'Failed to shopIt: {e}')
+            print(f'{cmd}-{sessionUUID} response: Failed to shop score: {e}')
+            return produceErrorResult(f'Failed to shop score: {e}')
 
     elif cmd == 'chooseChordOption':
         chordOptionId: str | None = request.form.get('chordOptionId')
+        print(f'{cmd}-{sessionUUID}: chordOptionId = "{chordOptionId}"')
         if not chordOptionId:
+            print(
+                f'{cmd}-{sessionUUID} response: Invalid chooseChordOption '
+                '(no chordOptionId specified)'
+            )
             return produceErrorResult('Invalid chooseChordOption (no chordOptionId specified)')
 
         me = getMusicEngineForSession(session)
         if me is None or me.m21Score is None:
+            print(f'{cmd}-{sessionUUID} response: No score to modify')
             return produceErrorResult('No score to modify')
+
+        # for logging only
+        obj = me.m21Score.getElementById(chordOptionId)
+        if obj is not None and hasattr(obj, 'content'):
+            print(f'{cmd}-{sessionUUID}: chordOption content = "{obj.content}"')
+        else:
+            print(f'{cmd}-{sessionUUID}: chordOption has no content')
+        # end for logging only
 
         try:
             me.chooseChordOption(chordOptionId)
+            print(f'{cmd}-{sessionUUID} response: success')
             result = produceResultScores(me, session)
         except Exception as e:
+            print(f'{cmd}-{sessionUUID} response: Failed to chooseChordOption: {e}')
             return produceErrorResult(f'Failed to chooseChordOption: {e}')
 
     else:
+        print(f'command-{sessionUUID} response: Invalid music engine command: {cmd}')
         result = produceErrorResult(f'Invalid music engine command: {cmd}')
 
-    # print(f'first 100 bytes of humdrum: {result["humdrum"][0:100]!r}')
     return result
 
 @app.route('/score', methods=['POST'])
 def score() -> dict:
     sessionUUID: str | None = request.cookies.get('sessionUUID')
     if not sessionUUID:
+        print('POST /score: no uuid')
         return produceErrorResult('No sessionUUID!')  # should never happen
+    print(f'POST /score: uuid = {sessionUUID}')
     session: AnonymousSession | None = getSession(sessionUUID)
     if session is None:
+        print(f'POST /score-{sessionUUID}: No session!')
         return produceErrorResult('No session!')  # should never happen
 
     # files in formdata end up in request.files
@@ -164,14 +206,16 @@ def score() -> dict:
     file = request.files['file']
     fileName: str = request.form['filename']
     fileData: str | bytes = file.read()
-    print(f'PUT /score: first 100 bytes of {fileName}: {fileData[0:100]!r}')
+    print(f'POST /score-{sessionUUID}: first 100 bytes of {fileName}: {fileData[0:100]!r}')
     result: dict[str, str] = {}
     try:
         # import into music21
-        print(f'PUT /score: parsing {fileName}')
+        print(f'POST /score-{sessionUUID}: parsing {fileName}')
         me: MusicEngine = MusicEngine.fromFileData(fileData, fileName)
+        print(f'POST /score-{sessionUUID}: parsing successful')
         result = produceResultScores(me, session)
     except Exception as e:
+        print(f'POST /score-{sessionUUID}: Exception during parse/write: {e}')
         return produceErrorResult(f'Exception during parse/write: {e}')
 
     return result
@@ -232,12 +276,20 @@ def getMusicEngineForSession(
     create: bool = False
 ) -> MusicEngine | None:
     me: MusicEngine | None = None
+    sessionUUID: str = session.sessionUUID
     if session.musicEngine is not None:
         frozenEngine: bytes = session.musicEngine
         if frozenEngine:
+            print(f'getMusicEngineForSession-{sessionUUID} thawing musicEngine')
             me = MusicEngine.thaw(frozenEngine)
+            if me is not None:
+                print(f'getMusicEngineForSession-{sessionUUID} success')
+            else:
+                print(f'getMusicEngineForSession-{sessionUUID} failed to thaw musicEngine')
+
     if create and me is None:
         # nothing in session, make one (and update the database)
+        print(f'getMusicEngineForSession-{sessionUUID} creating an empty musicEngine')
         me = MusicEngine()
         session.musicEngine = me.freeze()
         db.session.commit()
