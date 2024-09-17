@@ -48,8 +48,11 @@ class MusicEngine:
 
     @classmethod
     def thaw(cls, frozenEngine: bytes):
-        uncompressed: bytes = zlib.decompress(frozenEngine)
-        storage: dict[str, t.Any] = pickle.loads(uncompressed)
+        try:
+            uncompressed: bytes = zlib.decompress(frozenEngine)
+            storage: dict[str, t.Any] = pickle.loads(uncompressed)
+        except Exception:
+            return None
 
         me = cls()
         if 'm21Score' in storage and storage['m21Score']:
