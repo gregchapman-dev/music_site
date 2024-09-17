@@ -16,9 +16,6 @@ from app import MusicEngineUtilities
 # Register the Humdrum and MEI readers/writers from converter21
 converter21.register()
 
-# from flaskr.db import get_db
-
-
 class ScoreState:
     def __init__(self) -> None:
         self.shoppedAs: ArrangementType | None = None
@@ -51,7 +48,8 @@ class MusicEngine:
         try:
             uncompressed: bytes = zlib.decompress(frozenEngine)
             storage: dict[str, t.Any] = pickle.loads(uncompressed)
-        except Exception:
+        except Exception as e:
+            print(f'thaw failed: {e}')
             return None
 
         me = cls()
@@ -106,7 +104,7 @@ class MusicEngine:
 
         # This is too big an operation to undo with a command.  Stash off the whole
         # score to restore in an undo.
-        oldScore: m21.stream.Score = self.m21Score
+#         oldScore: m21.stream.Score = self.m21Score
 
         shopped: m21.stream.Score
         partRanges: dict[PartName, VocalRange]
@@ -114,11 +112,13 @@ class MusicEngine:
 
         # note that we do a freezeScore here so that we can just freeze the undoList
         # later without having to treat embedded scores specially.
-        self.undoList.append({
-            'command': 'restore',
-            'score': MusicEngineUtilities.freezeScore(oldScore),
-            'scoreState': self.scoreState
-        })
+#         self.undoList.append({
+#             'command': 'restore',
+#             'score': MusicEngineUtilities.freezeScore(oldScore),
+#             'scoreState': self.scoreState
+#         })
+        # for now, this is a "cannot undo" command.  Clear the undoList.
+        self.undoList = []
 
         self.m21Score = shopped
         self.scoreState.shoppedAs = arrType
