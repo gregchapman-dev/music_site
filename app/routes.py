@@ -41,10 +41,10 @@ def index() -> Response | str:
             secure=True,
             httponly=True
         )
-        print('index response: new uuid = {sessionUUID}, no initial score')
+        print(f'index response: new uuid = {sessionUUID}, no initial score')
         return resp
 
-    print('index: uuid = {sessionUUID}')
+    print(f'index: uuid = {sessionUUID}')
     # there is a sessionUUID; respond with the resulting score (mei for now, maybe humdrum later)
     session: AnonymousSession | None = getSession(sessionUUID, create=True)
     if t.TYPE_CHECKING:
@@ -58,11 +58,11 @@ def index() -> Response | str:
     if me.m21Score is not None:
         meiStr: str = getMeiScoreForSession(session, me)
         if meiStr:
-            print('index response: uuid = {sessionUUID}, initialScore[:100] = {meiStr[:100]}')
+            print(f'index response: uuid = {sessionUUID}, initialScore[:100] = {meiStr[:100]}')
             return render_template('index.html', meiInitialScore=meiStr)
 
     # no score in session
-    print('index response: uuid = {sessionUUID}, no initialScore')
+    print(f'index response: uuid = {sessionUUID}, no initialScore')
     return render_template('index.html', meiInitialScore='')
 
 @app.route('/command', methods=['POST'])
