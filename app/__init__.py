@@ -21,6 +21,7 @@ from .music_engine_utilities import ArrangementType
 from .music_engine_utilities import PartName
 from .music_engine_utilities import VocalRange
 from .music_engine_utilities import MusicEngineUtilities
+from .music_engine import MusicEngine
 
 # Factory function.  flask knows how to find this (it has a standard
 # name) when passed music_site on the flask command line, e.g.
@@ -32,4 +33,4 @@ app.config.from_object(Config)
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
-from app import routes, models  # pylint: disable=wrong-import-order
+from app import routes, models, commands  # pylint: disable=wrong-import-order
