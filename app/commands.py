@@ -76,10 +76,10 @@ def scoreName(m21Score: m21.stream.Score):
     if m21Score.metadata is None:
         return 'Score with no metadata.'
 
-    title: str | None = m21Score.metadata.title
-    if not title:
+    bestTitle: str | None = m21Score.metadata.bestTitle
+    if not bestTitle:
         return 'Untitled score'
-    return title
+    return bestTitle
 
 # @user_cli.command('create')
 # @click.argument('name')
