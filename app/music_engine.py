@@ -93,7 +93,7 @@ class MusicEngine:
 
         self.undoList.append({
             'cmd': 'transpose',
-            'semitonesUp': actualSemitones
+            'semitones': -actualSemitones
         })
 
         return actualSemitones
