@@ -8,7 +8,7 @@ import sqlalchemy as sa
 # import click  # for @click.argument('name') or whatever
 from flask.cli import AppGroup
 
-from app import app, db, MusicEngine
+from app import app, db, MusicEngine, PartName, VocalRange, ArrangementType
 from app.models import AnonymousSession
 
 gdb_cli = AppGroup('gdb')
@@ -44,10 +44,10 @@ def printFrozenMusicEngine(frozenMe: bytes | None):
     if me.m21Score is None:
         print('    m21Score: None.')
     else:
-        print(f'   m21Score: {scoreName(me.m21Score)}')
+        print(f'   m21Score: {scoreString(me.m21Score)}')
     print('    scoreState:')
-    print(f'        shoppedAs: {me.scoreState.shoppedAs}')
-    print(f'        shoppedPartRanges: {me.scoreState.shoppedPartRanges}')
+    print(f'        shoppedAs: {shoppedAsString(me.scoreState.shoppedAs)}')
+    print(f'        shoppedPartRanges: {partRangesString(me.scoreState.shoppedPartRanges)}')
     if not me.undoList:
         print('    undoList: empty')
     else:
@@ -70,7 +70,7 @@ def printZippedHumdrumFile(zippedHumdrum: bytes | None):
 def printZippedMusicXmlFile(zippedMusicXml: bytes | None):
     return
 
-def scoreName(m21Score: m21.stream.Score):
+def scoreString(m21Score: m21.stream.Score) -> str:
     if m21Score is None:
         return 'No score.'
     if m21Score.metadata is None:
@@ -80,6 +80,23 @@ def scoreName(m21Score: m21.stream.Score):
     if not bestTitle:
         return 'Untitled score'
     return bestTitle
+
+def partRangesString(partRanges: dict[PartName, VocalRange] | None) -> str:
+    if partRanges is None:
+        return 'None'
+
+    output: str = ''
+    for i, (part, vrange) in enumerate(partRanges.items()):
+        if i > 0:
+            output += ', '
+        output += part.name + ': ' + str(vrange)
+
+    return output
+
+def shoppedAsString(shoppedAs: ArrangementType | None) -> str:
+    if shoppedAs is None:
+        return 'None'
+    return shoppedAs.name
 
 # @user_cli.command('create')
 # @click.argument('name')

@@ -329,6 +329,9 @@ class VocalRange:
     def isInRange(self, p: m21.pitch.Pitch) -> bool:
         return not self.isOutOfRange(p)
 
+    def __str__(self) -> str:
+        return self.lowest.nameWithOctave + '..' + self.highest.nameWithOctave
+
 
 PART_RANGES: dict[ArrangementType, dict[PartName, VocalRange]] = {
     ArrangementType.LowerVoices: {
