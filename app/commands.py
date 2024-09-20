@@ -44,7 +44,7 @@ def printFrozenMusicEngine(frozenMe: bytes | None):
     if me.m21Score is None:
         print('    m21Score: None.')
     else:
-        print(f'   m21Score: {printScore(me.m21Score)}')
+        print(f'   m21Score: {scoreName(me.m21Score)}')
     print('    scoreState:')
     print(f'        shoppedAs: {me.scoreState.shoppedAs}')
     print(f'        shoppedPartRanges: {me.scoreState.shoppedPartRanges}')
@@ -70,9 +70,16 @@ def printZippedHumdrumFile(zippedHumdrum: bytes | None):
 def printZippedMusicXmlFile(zippedMusicXml: bytes | None):
     return
 
-def printScore(m21Score: m21.stream.Score):
-    return
+def scoreName(m21Score: m21.stream.Score):
+    if m21Score is None:
+        return 'No score.'
+    if m21Score.metadata is None:
+        return 'Score with no metadata.'
 
+    title: str | None = m21Score.metadata.title
+    if not title:
+        return 'Untitled score'
+    return title
 
 # @user_cli.command('create')
 # @click.argument('name')
