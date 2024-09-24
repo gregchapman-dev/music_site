@@ -157,16 +157,11 @@ function getHumdrumOption(baseid, key) {
 //
 
 function displayHumdrum(opts) {
-
 	if (HNP.ready) {
-
      	HNP.displayHumdrumNow(opts);
 	} else {
 		// Wait until the page has finished loading resources.
 		HNP.waiting.push(opts);
-		// document.addEventListener("DOMContentLoaded", function() {
-		// 	HNP.displayHumdrumNow(opts);
-		// });
 	}
 }
 
@@ -2657,7 +2652,7 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumNow = function (opts) {
 		if (!id) {
 		    id = opts.svgTarget;
 		}
-		if (!id)
+		if (!id) {
 			id = opts.source;
 		}
 		if (!id) {
@@ -3665,7 +3660,7 @@ vrvInterface.prototype.createWorkerInterface = function (onReady) {
 	this.renderDataWaiting = null;
 
 	// var workerUrl = "https://verovio-script.humdrum.org/scripts/verovio-worker.js";
-	var workerUrl = "/scripts/local/verovio-worker.js";
+	var workerUrl = "/scripts/verovio-worker.js";
 	console.log("LOADING", workerUrl);
 	this.worker = null;
 	var that = this;
