@@ -8,7 +8,7 @@
         integrity="sha512-dTfge/zgoMYpP7QbHy4gWMEGsbsdZeCXz7irItjcC3sPUFtf0kuFbDz/ixG7ArTxmDjLXDmezHubeNikyKGVyQ=="
         crossorigin="anonymous">
     <script
-        src="https://plugin.humdrum.org/scripts/humdrum-notation-plugin-worker.js"
+        src="{{ url_for('static', filename='scripts/humdrum-notation-plugin-worker.js') }}"
         defer>
     </script>
     <script
@@ -21,6 +21,7 @@
         {{ meiInitialScore }}
     </script>
     <script id="currentScore" type="plain/text">
+
     </script>
     <title>Shop it!</title>
 </head>
