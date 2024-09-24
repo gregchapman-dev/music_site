@@ -29,7 +29,7 @@ function verovioCalls() {
 			}
 		}
 
-		
+
 		validateHumdrum_Process(hum, function () {
 			//break on error
 			error = true;

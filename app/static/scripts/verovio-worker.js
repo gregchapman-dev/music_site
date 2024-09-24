@@ -1,7 +1,7 @@
 ---
 layout: empty
 permalink: /scripts/local/verovio-worker.js
-vim: ts=3 
+vim: ts=3
 ---
 
 {% comment %}
@@ -22,15 +22,9 @@ self.methods = null;
 // WASM installation variable:
 //
 
-{% if site.local == "true" %}
-	importScripts('/scripts/local/verovio-toolkit-wasm.js');
-	importScripts("/scripts/local/humdrumValidator.js");
-	importScripts("/scripts/local/verovio-calls.js");
-{% else %}
-	importScripts("https://verovio-script.humdrum.org/scripts/verovio-toolkit-wasm.js");
-	importScripts("https://verovio-script.humdrum.org/scripts/humdrumValidator.js");
-	importScripts("https://verovio-script.humdrum.org/scripts/verovio-calls.js");
-{% endif %}
+importScripts('/static/scripts/verovio-toolkit-wasm.js');
+// importScripts("/static/scripts/humdrumValidator.js");
+importScripts("/static/scripts/verovio-calls.js");
 
 
 // New method for loading verovio:

@@ -157,9 +157,9 @@ function getHumdrumOption(baseid, key) {
 //
 
 function displayHumdrum(opts) {
-	
+
 	if (HNP.ready) {
-	
+
      	HNP.displayHumdrumNow(opts);
 	} else {
 		// Wait until the page has finished loading resources.
@@ -247,7 +247,7 @@ function downloadFallback(source, opts, url) {
 //////////////////////////////
 //
 // checkParentResize --
-//    Note that Safari does not allow shrinking of original element sizes, only 
+//    Note that Safari does not allow shrinking of original element sizes, only
 //    expanding: https://css-tricks.com/almanac/properties/r/resize
 //
 
@@ -417,7 +417,7 @@ function getFilters(options) {
 
 //////////////////////////////
 //
-// processHtml -- Extract PREHTML/POSTHTML content from file and 
+// processHtml -- Extract PREHTML/POSTHTML content from file and
 //    place into div.PREHTML element and div.POSTHTML element.
 //
 
@@ -468,7 +468,7 @@ function processHtml(entry) {
 		for (let i=0; i<langs.length; i++) {
 			if (preHtml) {
 				preContent = preHtml[`CONTENT-${langs[i]}`];
-			} 
+			}
 			if (typeof preContent !== 'undefined') {
 				break;
 			}
@@ -476,7 +476,7 @@ function processHtml(entry) {
 		for (let i=0; i<langs.length; i++) {
 			if (postHtml) {
 				postContent = postHtml[`CONTENT-${langs[i]}`];
-			} 
+			}
 			if (typeof postContent !== 'undefined') {
 				break;
 			}
@@ -934,8 +934,8 @@ function cloneObject(obj) {
 // Syntax:        JavaScript 1.8.5/ECMAScript 5.1
 // vim:           ts=3
 //
-// This file contains the HumdrumNotationPluginEntry class for 
-// the Humdrum notation plugin.  This class is the used to store 
+// This file contains the HumdrumNotationPluginEntry class for
+// the Humdrum notation plugin.  This class is the used to store
 // options and elements for each notation example on a webpage.
 //
 
@@ -1037,20 +1037,20 @@ HumdrumNotationPluginEntry.prototype.copyContentToContainer = function () {
 		console.log("Error: Source property required for options:", this.options);
 		return;
 	}
-	
+
 	if (!this.humdrum) {
 		console.log("Error: Humdrum container target not initialized:", this);
 		return;
 	}
-	
+
 
 	var source = document.querySelector("#" + this.options.source);
 
 	if (!source) {
 		console.log("Error: No Humdrum source for", this.baseId);
-		
+
 		console.log("ID that is empty:", this.options.source);
-		
+
 		return;
 	}
 	if (!this.container) {
@@ -1097,26 +1097,26 @@ HumdrumNotationPluginEntry.prototype.copyContentToContainer = function () {
 			options = {
 				inputFrom: "musicxml-hum"
 			};
-			
+
 			convertMusicXmlToHumdrum(this.humdrum, content, options, poptions);
-			
+
 		} else if (ctype === "mei") {
 			// convert MEI data into Humdrum data
 			options = {
 				inputFrom: "mei-hum"
 			};
-			
+
 			convertMeiToHumdrum(this.humdrum, content, options, poptions);
-			
+
 		} else {
 			console.log("Warning: given some strange XML data:", content);
 		}
 */
-	
+
 //	} else {
 		this.humdrum.textContent = content;
 //	}
-	
+
 }
 
 
@@ -1184,8 +1184,8 @@ HumdrumNotationPluginEntry.prototype.initializeContainer = function () {
 
 	var output = "";
 	var hvisible = false;
-	if ((this.options["humdrumVisible"] === "true") || 
-	    (this.options["humdrumVisible"] === true) || 
+	if ((this.options["humdrumVisible"] === "true") ||
+	    (this.options["humdrumVisible"] === true) ||
 	    (this.options["humdrumVisible"] === 1)) {
 		hvisible = true;
 	}
@@ -2655,6 +2655,9 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumNow = function (opts) {
 	} else if (opts instanceof Object) {
 		var id = opts.target;
 		if (!id) {
+		    id = opts.svgTarget;
+		}
+		if (!id)
 			id = opts.source;
 		}
 		if (!id) {
@@ -2827,11 +2830,11 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumSvg = function (baseid) {
 
 	if (!entry.toolkit) {
 		// search for the verovio toolkit if not explicitly specified
-		
+
 		if (typeof vrvWorker !== "undefined") {
 			entry.toolkit = vrvWorker;
 		}
-		
+
 	}
 	var toolkit = entry.toolkit;
 	var sourcetext = entry.humdrum.textContent.trim();
@@ -2855,7 +2858,7 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumSvg = function (baseid) {
 	// Cannot display an empty score, since this will cause verovio to display the
 	// previously prepared score.
 	if (sourcetext.match(/^\s*$/)) {
-		
+
 		//console.log("Error: No humdrum content in", entry.humdrum);
 		//console.log("For ID", baseid, "ENTRY:", entry);
 		// Sleep for a while and try again.
@@ -2871,23 +2874,25 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumSvg = function (baseid) {
 		setTimeout(function() {
 			that.displayHumdrumSvg(baseid);
 		}, 100)
-		
+
 		return;
 	}
 
 	var preventRendering = false;
-	if (entry.options.suppressSvg) {
-		preventRendering = true;
-		// Maybe set entry.options.suppressSvg to false here.
+	if (!entry.options.svgTarget) {
+        if (entry.options.suppressSvg) {
+            preventRendering = true;
+            // Maybe set entry.options.suppressSvg to false here.
 
-		entry.container.style.display = "none";
-		entry.options._processedSuppressSvg = entry.options.suppressSvg;
-		delete entry.options.suppressSvg;
-		entry.container.style.display = "none";
-		return;
-	} else {
-		entry.container.style.display = "block";
-	}
+            entry.container.style.display = "none";
+            entry.options._processedSuppressSvg = entry.options.suppressSvg;
+            delete entry.options.suppressSvg;
+            entry.container.style.display = "none";
+            return;
+        } else {
+            entry.container.style.display = "block";
+        }
+    }
 
 	var pluginOptions = this.getEmbeddedOptions(sourcetext);
 	for (var property in entry.options) {
@@ -2924,78 +2929,84 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumSvg = function (baseid) {
 		}
 	}
 
-	
+
 	vrvWorker.resetOptions();
 	vrvWorker.renderData(vrvOptions, sourcetext)
 	.then(function(svg) {
-		entry.svg.innerHTML = svg;
-		// clear the height styling which may have been given as a placeholder:
-		entry.container.style.height = "";
+	    if (entry.svgTarget) {
+	        svgEl = document.querySelector("#" + entry.svgTarget)
+	        svgEl.innerHTML = svg
+	    }
+	    else {
+            entry.svg.innerHTML = svg;
+            // clear the height styling which may have been given as a placeholder:
+            entry.container.style.height = "";
 
-		if (pluginOptions.postFunction) {
-			// Need to run a function after the image has been created or redrawn
-			try {
-				pluginOptions.postFunction(baseid, that2);
-			} catch (error) {
-				executeFunctionByName(pluginOptions.postFunction, window, [baseid, that2]);
-			}
-			pluginOptions._processedPostFunction = pluginOptions.postFunction;
-			delete pluginOptions.postFunction;
-		}
-		pluginOptions._currentPageWidth = vrvOptions.pageWidth;
+            if (pluginOptions.postFunction) {
+                // Need to run a function after the image has been created or redrawn
+                try {
+                    pluginOptions.postFunction(baseid, that2);
+                } catch (error) {
+                    executeFunctionByName(pluginOptions.postFunction, window, [baseid, that2]);
+                }
+                pluginOptions._processedPostFunction = pluginOptions.postFunction;
+                delete pluginOptions.postFunction;
+            }
+            pluginOptions._currentPageWidth = vrvOptions.pageWidth;
 
-		processHtml(that2.entries[baseid]);
+            processHtml(that2.entries[baseid]);
 
-		// Update stored options
-		var autoresize = pluginOptions.autoResize === "true" ||
-	                 	pluginOptions.autoResize === true ||
-	                 	pluginOptions.autoResize === 1;
+            // Update stored options
+            var autoresize = pluginOptions.autoResize === "true" ||
+                            pluginOptions.autoResize === true ||
+                            pluginOptions.autoResize === 1;
 
-		if (autoresize && !pluginOptions._autoResizeInitialize) {
-			// need to inialize a resize callback for this image.
-			pluginOptions._autoResizeInitialize = true;
-			var aridelement = entry.container.parentNode;
+            if (autoresize && !pluginOptions._autoResizeInitialize) {
+                // need to inialize a resize callback for this image.
+                pluginOptions._autoResizeInitialize = true;
+                var aridelement = entry.container.parentNode;
 
-			if (aridelement && (!entry._resizeObserver || entry._resizeCallback)) {
-				try {
+                if (aridelement && (!entry._resizeObserver || entry._resizeCallback)) {
+                    try {
 
-					var _debounce = function(ms, fn) {
-  						return function() {
-							if (entry._timer) {
-    							clearTimeout(entry._timer);
-							}
-    						var args = Array.prototype.slice.call(arguments);
-    						args.unshift(this);
-    						entry._timer = setTimeout(fn.bind.apply(fn, args), ms);
-  						};
-					};
+                        var _debounce = function(ms, fn) {
+                            return function() {
+                                if (entry._timer) {
+                                    clearTimeout(entry._timer);
+                                }
+                                var args = Array.prototype.slice.call(arguments);
+                                args.unshift(this);
+                                entry._timer = setTimeout(fn.bind.apply(fn, args), ms);
+                            };
+                        };
 
-					entry._resizeObserver = new ResizeObserver(_debounce(500, function(event) {
-						(function(bid) {
-							displayHumdrum(bid);
-						})(baseid);
-					}));
-					entry._resizeObserver.observe(aridelement);
+                        entry._resizeObserver = new ResizeObserver(_debounce(500, function(event) {
+                            (function(bid) {
+                                displayHumdrum(bid);
+                            })(baseid);
+                        }));
+                        entry._resizeObserver.observe(aridelement);
 
-				} catch (error) {
+                    } catch (error) {
 
-					// ResizeObserver is not present for this browser, use setInterval instead.
-					var refreshRate = 250; // milliseconds
-					entry._resizeCallback = setInterval(function() {
-						(function(bid) {
-							checkParentResize(bid);
-						})(baseid)
-					}, refreshRate);
+                        // ResizeObserver is not present for this browser, use setInterval instead.
+                        var refreshRate = 250; // milliseconds
+                        entry._resizeCallback = setInterval(function() {
+                            (function(bid) {
+                                checkParentResize(bid);
+                            })(baseid)
+                        }, refreshRate);
 
-				}
-			} else if (!aridelement) {
-				window.addEventListener("resize", function(event) {
-					(function(bid) {
-						displayHumdrum(bid);
-					})(baseid);
-				});
-			}
-		}
+                    }
+                } else if (!aridelement) {
+                    window.addEventListener("resize", function(event) {
+                        (function(bid) {
+                            displayHumdrum(bid);
+                        })(baseid);
+                    });
+                }
+            }
+        }
 	})
 	.catch((message) => {
 		console.log("PROBLEM RENDERING DATA WITH VEROVIO WORKER, ERROR:", message);
@@ -3018,7 +3029,7 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumSvg = function (baseid) {
 
 		});
 	});
-	
+
 };
 
 
@@ -3293,7 +3304,7 @@ HumdrumNotationPluginDatabase.prototype.makeUrlNifc = function (uri, opts) {
 // Syntax:        JavaScript 1.8.5/ECMAScript 5.1
 // vim:           ts=3
 //
-//	This file contains the ReferenceRecord class for 
+//	This file contains the ReferenceRecord class for
 // the Humdrum notation plugin.  This class is used by
 // the ReferenceRecords class to store a particular
 // reference record.
@@ -3425,7 +3436,7 @@ ReferenceRecord.prototype.parseTextLine = function () {
 // Syntax:        JavaScript 1.8.5/ECMAScript 5.1
 // vim:           ts=3
 //
-//	This file contains the ReferenceRecords class for 
+//	This file contains the ReferenceRecords class for
 // the Humdrum notation plugin.  This class is used to access
 // the reference records in a Humdrum file.
 //
@@ -3542,7 +3553,7 @@ ReferenceRecords.prototype.getReferenceAll = function (keyBase) {
 
 //////////////////////////////
 //
-// ReferenceRecords::getReferenceFirstExact -- 
+// ReferenceRecords::getReferenceFirstExact --
 //
 
 ReferenceRecords.prototype.getReferenceFirstExact = function (key) {
@@ -3560,7 +3571,7 @@ ReferenceRecords.prototype.getReferenceFirstExact = function (key) {
 
 //////////////////////////////
 //
-// ReferenceRecords::getReferenceAllExact -- 
+// ReferenceRecords::getReferenceAllExact --
 //
 
 ReferenceRecords.prototype.getReferenceAllExact = function (key) {
@@ -3729,7 +3740,7 @@ vrvInterface.prototype.createDefaultInterface = function (onReady) {
 	script.src = url;
 	document.head.appendChild(script);
 
-/* verovio toolkit is larger than allowed by localStorage (5 MB limit), so 
+/* verovio toolkit is larger than allowed by localStorage (5 MB limit), so
  * using basket to store it between sessions is not useful to use:
 
 	basket
@@ -4198,10 +4209,10 @@ ATON.prototype.setUCKeys = function () { this.setOption('forceKeyCase', 'uc'); r
 ATON.prototype.setOCKeys = function () { this.setOption('forceKeyCase', ''); return this; }
 ATON.prototype.unsetKeyCase = function ()  { this.setOCKeys(); }
 
-ATON.prototype.setOnlyChildRoot = function () { 
+ATON.prototype.setOnlyChildRoot = function () {
 	this.setOption('onlyChildToRoot', true);
 }
-ATON.prototype.unsetOnlyChildRoot = function () { 
+ATON.prototype.unsetOnlyChildRoot = function () {
 	this.setOption('onlyChildToRoot', false);
 }
 
@@ -4254,7 +4265,7 @@ ATON.prototype.parse = function (string) {
 		if ((keys.length === 1) && (typeof output[keys[0]] === 'object')) {
 			return output[keys[0]];
 		}
-	} 
+	}
 	return output;
 };
 

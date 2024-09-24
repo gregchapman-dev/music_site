@@ -52,7 +52,7 @@
             console.log("calling displayHumdrum");
             displayHumdrum({
                 source: "currentScore",
-                target: "notation",
+                svgTarget: "notation",
                 autoResize: "true",
                 header: "true",
                 scale: 30,
