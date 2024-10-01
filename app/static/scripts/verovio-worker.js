@@ -1,18 +1,18 @@
----
-layout: empty
-permalink: /scripts/local/verovio-worker.js
-vim: ts=3
----
+// ---
+// layout: empty
+// permalink: /static/scripts/verovio-worker.js
+// vim: ts=3
+// ---
 
-{% comment %}
-
-Web worker interface for verovio, which separates notation rendering
-into a separate thread from the user interface.
-
-For more information about web workers:
-     https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
-
-{% endcomment %}
+// {% comment %}
+//
+// Web worker interface for verovio, which separates notation rendering
+// into a separate thread from the user interface.
+//
+// For more information about web workers:
+//      https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers
+//
+// {% endcomment %}
 
 self.methods = null;
 

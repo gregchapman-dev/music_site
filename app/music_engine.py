@@ -138,3 +138,28 @@ class MusicEngine:
             'cmd': 'chooseChordOption',
             'optionId': undoOptionId
         })
+
+    def hideChordOptions(self):
+        self.showHideChordOptions(hide=True)
+
+    def showChordOptions(self):
+        self.showHideChordOptions(hide=False)
+
+    def showHideChordOptions(self, hide: bool):
+        if self.m21Score is None:
+            raise MusicEngineException('Cannot show/hide chord option: there is no score.')
+
+        for te in self.m21Score[m21.expressions.TextExpression]:
+            if hasattr(te, 'me_chordsymbol'):
+                # te is a chordOption, hide (or show) it
+                te.style.hideObjectOnPrint = hide
+
+        undoCommand: str
+        if hide:
+            undoCommand = 'showChordOptions'
+        else:
+            undoCommand = 'hideChordOptions'
+
+        self.undoList.append({
+            'cmd': undoCommand,
+        })

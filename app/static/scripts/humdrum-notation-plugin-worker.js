@@ -158,9 +158,11 @@ function getHumdrumOption(baseid, key) {
 
 function displayHumdrum(opts) {
 	if (HNP.ready) {
+	    console.log("displayHumdrum: HNP.displayHumdrumNow(opts)", opts)
      	HNP.displayHumdrumNow(opts);
 	} else {
 		// Wait until the page has finished loading resources.
+		console.log("displayHumdrum: HNP.waiting.push(opts)", opts)
 		HNP.waiting.push(opts);
 	}
 }
@@ -2874,19 +2876,17 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumSvg = function (baseid) {
 	}
 
 	var preventRendering = false;
-	if (!entry.options.svgTarget) {
-        if (entry.options.suppressSvg) {
-            preventRendering = true;
-            // Maybe set entry.options.suppressSvg to false here.
+    if (entry.options.suppressSvg && !entry.options.svgTarget) {
+        preventRendering = true;
+        // Maybe set entry.options.suppressSvg to false here.
 
-            entry.container.style.display = "none";
-            entry.options._processedSuppressSvg = entry.options.suppressSvg;
-            delete entry.options.suppressSvg;
-            entry.container.style.display = "none";
-            return;
-        } else {
-            entry.container.style.display = "block";
-        }
+        entry.container.style.display = "none";
+        entry.options._processedSuppressSvg = entry.options.suppressSvg;
+        delete entry.options.suppressSvg;
+        entry.container.style.display = "none";
+        return;
+    } else {
+        entry.container.style.display = "block";
     }
 
 	var pluginOptions = this.getEmbeddedOptions(sourcetext);
@@ -2928,11 +2928,13 @@ HumdrumNotationPluginDatabase.prototype.displayHumdrumSvg = function (baseid) {
 	vrvWorker.resetOptions();
 	vrvWorker.renderData(vrvOptions, sourcetext)
 	.then(function(svg) {
-	    if (entry.svgTarget) {
-	        svgEl = document.querySelector("#" + entry.svgTarget)
+	    if (entry.options.svgTarget) {
+	        console.log("svgTarget", svg)
+	        svgEl = document.querySelector("#" + entry.options.svgTarget)
 	        svgEl.innerHTML = svg
 	    }
 	    else {
+	        console.log("!svgTarget", svg)
             entry.svg.innerHTML = svg;
             // clear the height styling which may have been given as a placeholder:
             entry.container.style.height = "";
@@ -3660,7 +3662,7 @@ vrvInterface.prototype.createWorkerInterface = function (onReady) {
 	this.renderDataWaiting = null;
 
 	// var workerUrl = "https://verovio-script.humdrum.org/scripts/verovio-worker.js";
-	var workerUrl = "/scripts/verovio-worker.js";
+	var workerUrl = "/static/scripts/verovio-worker.js";
 	console.log("LOADING", workerUrl);
 	this.worker = null;
 	var that = this;
@@ -3687,7 +3689,7 @@ vrvInterface.prototype.createWorkerInterface = function (onReady) {
 //
 
 function createWorkerFallback(workerUrl) {
-	console.log("Getting cross-origin worker");
+	console.log("!!!! Getting cross-origin worker!!!!", workerUrl);
 	var worker = null;
 	try {
 		var blob;

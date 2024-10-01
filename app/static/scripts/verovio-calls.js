@@ -22,12 +22,12 @@ function verovioCalls() {
 		// [20200914: Allow Windows newlines]
 		hum = data.split(/\r\n|\n|\r/).map(function (l) { return l.split(/\t+/) });
 
-		let foundExinterp = false;
-		const r
-		for (let i=0; i<hum.length; i++) {
-			for (let j=0; j<hum[i].length; j++) {
-			}
-		}
+// 		let foundExinterp = false;
+// 		const r
+// 		for (let i=0; i<hum.length; i++) {
+// 			for (let j=0; j<hum[i].length; j++) {
+// 			}
+// 		}
 
 
 		validateHumdrum_Process(hum, function () {

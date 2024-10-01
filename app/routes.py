@@ -220,6 +220,58 @@ def score() -> dict:
 
     return result
 
+@app.route('/hideChordOptions', methods=['POST'])
+def hideChordOptions() -> Response | dict:
+    sessionUUID: str | None = request.cookies.get('sessionUUID')
+    if not sessionUUID:
+        return produceErrorResult('No sessionUUID!')  # should never happen
+    session: AnonymousSession | None = getSession(sessionUUID)
+    if session is None:
+        return produceErrorResult('No session!')  # should never happen
+    me = getMusicEngineForSession(session)
+    if me is None or me.m21Score is None:
+        print(f'hideChordOptions-{sessionUUID} response: No score to modify')
+        return produceErrorResult('No score to modify')
+
+    result: dict[str, str] = {}
+
+    try:
+        print(f'hideChordOptions-{sessionUUID} response: Hiding chord options')
+        me.hideChordOptions()
+        result = produceResultScores(me, session)
+        print(f'hideChordOptions-{sessionUUID} response: Success')
+    except Exception as e:
+        print(f'hideChordOptions-{sessionUUID} response: Failed to hide chord options: {e}')
+        return produceErrorResult(f'Failed to hide chord options: {e}')
+
+    return result
+
+# @app.route('/showChordOptions', methods=['POST'])
+# def showChordOptions() -> Response | dict:
+#     sessionUUID: str | None = request.cookies.get('sessionUUID')
+#     if not sessionUUID:
+#         return produceErrorResult('No sessionUUID!')  # should never happen
+#     session: AnonymousSession | None = getSession(sessionUUID)
+#     if session is None:
+#         return produceErrorResult('No session!')  # should never happen
+#     me = getMusicEngineForSession(session)
+#     if me is None or me.m21Score is None:
+#         print(f'showChordOptions-{sessionUUID} response: No score to modify')
+#         return produceErrorResult('No score to modify')
+#
+#     result: dict[str, str] = {}
+#
+#     try:
+#         print(f'showChordOptions-{sessionUUID} response: Showing chord options')
+#         me.showChordOptions()
+#         result = produceResultScores(me, session)
+#         print(f'showChordOptions-{sessionUUID} response: Success')
+#     except Exception as e:
+#         print(f'showChordOptions-{sessionUUID} response: Failed to show chord options: {e}')
+#         return produceErrorResult(f'Failed to show chord options: {e}')
+#
+#     return result
+
 @app.route('/musicxml', methods=['GET'])
 def musicxml() -> Response | dict:
     sessionUUID: str | None = request.cookies.get('sessionUUID')
@@ -257,7 +309,7 @@ def mei() -> Response | dict:
     meiBytes: bytes = meiStr.encode('utf-8')
     return send_file(BytesIO(meiBytes), download_name='Score.mei', as_attachment=True)
 
-
+# Support functions
 def createNewAnonymousSession(sessionUUID: str) -> AnonymousSession:
     session = AnonymousSession(sessionUUID=sessionUUID)
     db.session.add(session)

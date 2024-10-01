@@ -55,9 +55,9 @@
                 svgTarget: "notation",
                 autoResize: "true",
                 header: "true",
-                scale: 30,
+                scale: 50,
                 scaleToPageSize: true,
-                pageWidth: 1000,
+                // pageWidth: 1000,
             });
         }
         else {
@@ -83,7 +83,7 @@
         formData.append('arrangementType', arrType);
         fetch(
             '/command',
-            {method: 'POST', body: formData }
+            {method: 'POST', body: formData}
         ).then( async (resp) => {
             await processResponse(resp);
         });
@@ -95,6 +95,15 @@
 
     function shopItLower() {
         shopIt('LowerVoices');
+    }
+
+    function hideChordOptions() {
+        fetch(
+            '/hideChordOptions',
+            {method: 'POST'}
+        ).then( async (resp) => {
+            await processResponse(resp);
+        });
     }
 
     function htmlDecode(input) {
@@ -222,6 +231,7 @@
     const transposeBtn = document.querySelector('#transpose');
     const shopItUpperBtn = document.querySelector('#shopItUpper');
     const shopItLowerBtn = document.querySelector('#shopItLower');
+    const hideChordOptionsBtn = document.querySelector('#hideChordOptions');
     const downloadMusicXMLTag = document.querySelector('#downloadAnchorMusicXML');
     const downloadHumdrumTag = document.querySelector('#downloadAnchorHumdrum');
     const downloadMEITag = document.querySelector('#downloadAnchorMEI');
@@ -242,3 +252,4 @@
     transposeBtn.addEventListener("click", transpose);
     shopItUpperBtn.addEventListener("click", shopItUpper);
     shopItLowerBtn.addEventListener("click", shopItLower);
+    hideChordOptionsBtn.addEventListener("click", hideChordOptions);
