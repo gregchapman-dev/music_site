@@ -1248,8 +1248,11 @@ class MusicEngineUtilities:
     @staticmethod
     def copyObject(obj: m21.base.Music21Object) -> m21.base.Music21Object:
         output: m21.base.Music21Object = deepcopy(obj)
+        # put id back to default (mem location)
+        output.id = None  # type: ignore
         if hasattr(output, 'xml_id'):
             del output.xml_id  # type: ignore
+        M21Utilities.assureXmlIdAndId(output)
         return output
 
     @staticmethod
@@ -4907,12 +4910,10 @@ class MusicEngineUtilities:
 
         csChosen: m21.harmony.ChordSymbol = chosenOption.me_chordsymbol  # type: ignore
         csChosen.quarterLength = prevOption.quarterLength
-        M21Utilities.assureXmlId(csChosen)
-        csChosen.id = getattr(csChosen, 'xml_id')
+        M21Utilities.assureXmlIdAndId(csChosen)
         prevOptionStr = f'{prevOption.me_option_number}:({prevOptionStr})'  # type: ignore
         tePrevious = m21.expressions.TextExpression(prevOptionStr)
-        M21Utilities.assureXmlId(tePrevious)
-        tePrevious.id = getattr(tePrevious, 'xml_id')
+        M21Utilities.assureXmlIdAndId(tePrevious)
         if t.TYPE_CHECKING:
             assert isinstance(tePrevious.id, str)
         undoOptionId: str = tePrevious.id
