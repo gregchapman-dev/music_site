@@ -1691,7 +1691,7 @@ class MusicEngineUtilities:
         option8: m21.harmony.ChordSymbol | None = None
 
         # 1. Extended chord: if lead is on 6, -7, or 9, just add that to the existing chord
-        chordKindSet: bool = False
+        chordKindStrSet: bool = False
         # try adding 6th (or 13th)
         if MusicEngineUtilities.pitchCanBeDegreeOfChord(leadPitchName, '6', origChord):
             if origChord.chordKind == 'major':
@@ -1710,7 +1710,7 @@ class MusicEngineUtilities:
                 )
                 if option1 is not None:
                     option1.chordKindStr = 'maj69'
-                    chordKindSet = True
+                    chordKindStrSet = True
             elif origChord.chordKind == 'major-11th':
                 option1 = MusicEngineUtilities.tryChord(
                     leadPitchName, origChord, 'major-13th'
@@ -1789,7 +1789,7 @@ class MusicEngineUtilities:
                 option1 = MusicEngineUtilities.tryAddingDegree(leadPitchName, origChord, 9)
 
         if option1 is not None:
-            if not chordKindSet:
+            if not chordKindStrSet:
                 option1.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
                         option1.findFigure(), removeNoteNames=True
@@ -1797,7 +1797,7 @@ class MusicEngineUtilities:
                 )
             allOptions.append(option1)
 
-        chordKindSet = False
+        chordKindStrSet = False
         # Greg's new option1a: unsuspend fourth (to major or minor third) if orig is sus4 or 7sus4
         # or suspend fourth if orig has major or minor third, or let the lead take aug4 in a maj6
         # chord (which is actually a half-diminished-seventh a tritone above)
@@ -1845,15 +1845,17 @@ class MusicEngineUtilities:
                         )
                         if not origChord.chordStepModifications:
                             option1a.chordKindStr = '7sus4'
-                            chordKindSet = True
-
+                            chordKindStrSet = True
+                        elif origChord.chordKindStr == '7alt':
+                            option1a.chordKindStr = '7altsus4'
+                            chordKindStrSet = True
                     else:
                         option1a.addChordStepModification(
                             m21.harmony.ChordStepModification('add', 7)
                         )
                         if not origChord.chordStepModifications:
                             option1a.chordKindStr = 'maj7sus4'
-                            chordKindSet = True
+                            chordKindStrSet = True
 
         elif MusicEngineUtilities.pitchCanBeDegreeOfChord(leadPitchName, '#4', origChord):
             if origChord.chordKind == 'major-sixth':
@@ -1865,7 +1867,7 @@ class MusicEngineUtilities:
                 )
 
         if option1a is not None:
-            if not chordKindSet:
+            if not chordKindStrSet:
                 option1a.chordKindStr = (
                     M21Utilities.convertChordSymbolFigureToPrintableText(
                         option1a.findFigure(), removeNoteNames=True
@@ -1873,7 +1875,7 @@ class MusicEngineUtilities:
                 )
             allOptions.append(option1a)
 
-        chordKindSet = False
+        chordKindStrSet = False
 
         # 2. 7th chord with root 5th above original
         if MusicEngineUtilities.pitchCanBeDegreeOfChord(
