@@ -4,6 +4,7 @@ import zlib
 import pickle
 
 import music21 as m21
+from music21.common.numberTools import OffsetQL
 
 import converter21
 
@@ -16,10 +17,19 @@ from app import MusicEngineUtilities
 # Register the Humdrum and MEI readers/writers from converter21
 converter21.register()
 
+class HiddenTextExpression(m21.base.Music21Object):
+    # Necessary because MEI doesn't support hidden text expressions, so we must hide
+    # these from the MEI exporter.
+    def __init__(self, te: m21.expressions.TextExpression, **keywords):
+        super().__init__(**keywords)
+        self.te = te
+
+
 class ScoreState:
     def __init__(self) -> None:
         self.shoppedAs: ArrangementType | None = None
         self.shoppedPartRanges: dict[PartName, VocalRange] | None = None
+
 
 class MusicEngine:
     def __init__(self) -> None:
@@ -92,7 +102,7 @@ class MusicEngine:
         )
 
         self.undoList.append({
-            'cmd': 'transpose',
+            'command': 'transpose',
             'semitones': -actualSemitones
         })
 
@@ -104,21 +114,17 @@ class MusicEngine:
 
         # This is too big an operation to undo with a command.  Stash off the whole
         # score to restore in an undo.
-#         oldScore: m21.stream.Score = self.m21Score
-
         shopped: m21.stream.Score
         partRanges: dict[PartName, VocalRange]
         shopped, partRanges = MusicEngineUtilities.shopIt(self.m21Score, arrType)
 
         # note that we do a freezeScore here so that we can just freeze the undoList
         # later without having to treat embedded scores specially.
-#         self.undoList.append({
-#             'command': 'restore',
-#             'score': MusicEngineUtilities.freezeScore(oldScore),
-#             'scoreState': self.scoreState
-#         })
-        # for now, this is a "cannot undo" command.  Clear the undoList.
-        self.undoList = []
+        self.undoList.append({
+            'command': 'restore',
+            'score': MusicEngineUtilities.freezeScore(self.m21Score),
+            'scoreState': self.scoreState
+        })
 
         self.m21Score = shopped
         self.scoreState.shoppedAs = arrType
@@ -135,7 +141,7 @@ class MusicEngine:
             self.m21Score, optionId, self.scoreState.shoppedPartRanges
         )
         self.undoList.append({
-            'cmd': 'chooseChordOption',
+            'command': 'chooseChordOption',
             'optionId': undoOptionId
         })
 
@@ -149,10 +155,32 @@ class MusicEngine:
         if self.m21Score is None:
             raise MusicEngineException('Cannot show/hide chord option: there is no score.')
 
-        for te in self.m21Score[m21.expressions.TextExpression]:
-            if hasattr(te, 'me_chordsymbol'):
-                # te is a chordOption, hide (or show) it
-                te.style.hideObjectOnPrint = hide
+        container: m21.stream.Stream | None = None
+        offset: OffsetQL
+
+        if hide:
+            for te in self.m21Score[m21.expressions.TextExpression]:
+                if hasattr(te, 'me_chordsymbol'):
+                    # te is a chordOption, hide it
+                    container = self.m21Score.containerInHierarchy(te, setActiveSite=False)
+                    if container is None:
+                        # should never happen, but if so, just skip it.
+                        continue
+                    offset = te.getOffsetInHierarchy(container)
+                    teHidden = HiddenTextExpression(te)
+                    container.remove(te)
+                    container.insert(offset, teHidden)
+        else:
+            # show
+            for teHidden in self.m21Score[HiddenTextExpression]:
+                if teHidden.te is not None and hasattr(teHidden.te, 'me_chordsymbol'):
+                    container = self.m21Score.containerInHierarchy(teHidden, setActiveSite=False)
+                    if container is None:
+                        # should never happen, but if so, just skip it.
+                        continue
+                    offset = teHidden.getOffsetInHierarchy(container)
+                    container.remove(teHidden)
+                    container.insert(offset, teHidden.te)
 
         undoCommand: str
         if hide:
@@ -161,5 +189,5 @@ class MusicEngine:
             undoCommand = 'hideChordOptions'
 
         self.undoList.append({
-            'cmd': undoCommand,
+            'command': undoCommand,
         })

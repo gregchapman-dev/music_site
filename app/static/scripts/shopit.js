@@ -1,6 +1,3 @@
-    let gScore;
-//     let gScoreMusicXml;  // for downloading
-//     let gScoreHumdrum;   // for uploading with commands (it's way smaller)
     let gScoreMei = '';       // for rendering with verovio
 
     function containsScore(mei) {
@@ -28,17 +25,6 @@
 
     function renderMusic() {
         if (containsScore(gScoreMei)) {
-//             let tk = assureVerovioInitialized()
-//             if (tk === undefined) {
-//                 console.log("renderMusic failed to initialize verovio; refresh page to fix.")
-// //                 setTimeout(function() {
-// //                     console.log("trying to renderMusic again later")
-// //                     renderMusic();
-// //                 }, 5000)
-//                 return
-//             }
-//             let svg = tk.renderData(gScoreMei, {});
-//             document.getElementById("notation").innerHTML = svg;
             // write gScoreMei to #currentScore element, and pass it
             // to displayHumdrum.
             let currScoreEl = document.querySelector("#currentScore");
@@ -57,7 +43,6 @@
                 header: "true",
                 scale: 50,
                 scaleToPageSize: true,
-                // pageWidth: 1000,
             });
         }
         else {
@@ -98,9 +83,11 @@
     }
 
     function hideChordOptions() {
+        formData = new FormData();
+        formData.append('command', 'hideChordOptions');
         fetch(
-            '/hideChordOptions',
-            {method: 'POST'}
+            '/command',
+            {method: 'POST', body: formData}
         ).then( async (resp) => {
             await processResponse(resp);
         });
@@ -112,20 +99,17 @@
     }
 
     function handleFiles() {
-        // Assumes only one MusicXML file (since our HTML only allows one).
-        // POSTs to server to be saved for later processing; displays the
-        // resulting MEI (from response), remembers the Humdrum (for quick
-        // use during commands) and adds a download data URL to the DOM
-        // for the user to save off the MusicXML).
+        // Assumes only one score file (since our HTML only allows one).
+        // POSTs to server to be saved for later processing and displays
+        // the resulting MEI (from response).
         const selectedFile = this.files[0];
         const reader = new FileReader();
         reader.onload = async (e) => {
             // POST file contents to '/score'
-            // The response will be the MusicXML equivalent of the score file
+            // The response will be the MEI equivalent of the score file
             // contents you POSTed (converted by server, even if what you
-            // POSTed was MusicXML).
+            // POSTed was MEI).
             const formData = new FormData();
-            // formData.append('score', reader.result, selectedFile.name)
             formData.append('file', selectedFile);
             formData.append('filename', selectedFile.name);
             const resp = await fetch(
@@ -164,38 +148,6 @@
         }
     }
 
-    // let verovioToolkit;
-
-//     function assureVerovioInitialized() {
-//         if (verovioToolkit !== undefined) {
-//             console.log("Verovio was already loaded.")
-//             return verovioToolkit
-//         }
-//
-//         try {
-//             console.log("Trying to load Verovio toolkit.")
-//             verovioToolkit = new verovio.toolkit();
-//         }
-//         catch (e) {
-//             console.log("Verovio toolkit load failed, will retry later.")
-//             return undefined
-//         }
-//
-//         console.log("Verovio toolkit has loaded!");
-// //             console.log("Verovio default options:", verovioToolkit.getDefaultOptions());
-//         verovioToolkit.setOptions({
-// //                 breaks: "none",
-//             scale: 30,
-// //                 landscape: true,
-//             scaleToPageSize: true,
-//             pageWidth: 1000,
-// //                 adjustPageWidth: true,
-// //                 adjustPageHeight: true
-//         });
-// //             console.log("Verovio options:", verovioToolkit.getOptions());
-//         return verovioToolkit
-//     }
-
     // ----------- main code ----------------
 
     document.addEventListener("DOMContentLoaded", (event) => {
@@ -207,17 +159,7 @@
         else {
             console.log("no initialScore")
         }
-//         verovio.module.onRuntimeInitialized = () => {
-//             console.log("verovio.module.onRuntimeInitialized fired.")
-//             assureVerovioInitialized()
-//             if (containsScore(gScoreMei)) {
-//                 console.log("rendering initialScore (in verovio..onRuntimeInitialized)")
-//                 renderMusic()
-//             }
-//             else {
-//                 console.log("no initialScore to render (in verovio..onRuntimeInitialized)")
-//             }
-//         }
+
         if (containsScore(gScoreMei)) {
             console.log("attempting to render initialScore (in DOMContentLoaded)")
             renderMusic()
