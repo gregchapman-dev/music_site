@@ -181,6 +181,27 @@ def command() -> dict:
         except Exception as e:
             print(f'hideChordOptions-{sessionUUID} response: Failed to hide chord options: {e}')
             return produceErrorResult(f'Failed to hide chord options: {e}')
+
+    elif cmd == 'undo':
+        try:
+            print(f'undo-{sessionUUID} response: Undoing')
+            me.undo()
+            result = produceResultScores(me, session)
+            print(f'undo-{sessionUUID} response: Success')
+        except Exception as e:
+            print(f'undo-{sessionUUID} response: Failed to undo: {e}')
+            return produceErrorResult(f'Failed to undo: {e}')
+
+    elif cmd == 'redo':
+        try:
+            print(f'redo-{sessionUUID} response: Redoing')
+            me.redo()
+            result = produceResultScores(me, session)
+            print(f'redo-{sessionUUID} response: Success')
+        except Exception as e:
+            print(f'redo-{sessionUUID} response: Failed to redo: {e}')
+            return produceErrorResult(f'Failed to redo: {e}')
+
     else:
         print(f'command-{sessionUUID} response: Invalid music engine command: {cmd}')
         result = produceErrorResult(f'Invalid music engine command: {cmd}')

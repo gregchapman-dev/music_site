@@ -62,6 +62,28 @@
         });
     }
 
+    function undo() {
+        formData = new FormData();
+        formData.append('command', 'undo');
+        fetch(
+            '/command',
+            {method: 'POST', body: formData }
+        ).then( async (resp) => {
+            await processResponse(resp);
+        });
+    }
+
+    function redo() {
+        formData = new FormData();
+        formData.append('command', 'redo');
+        fetch(
+            '/command',
+            {method: 'POST', body: formData }
+        ).then( async (resp) => {
+            await processResponse(resp);
+        });
+    }
+
     function shopIt(arrType) {
         formData = new FormData();
         formData.append('command', 'shopIt');
@@ -174,6 +196,8 @@
     const shopItUpperBtn = document.querySelector('#shopItUpper');
     const shopItLowerBtn = document.querySelector('#shopItLower');
     const hideChordOptionsBtn = document.querySelector('#hideChordOptions');
+    const undoBtn = document.querySelector('#undo')
+    const redoBtn = document.querySelector('#redo')
     const downloadMusicXMLTag = document.querySelector('#downloadAnchorMusicXML');
     const downloadHumdrumTag = document.querySelector('#downloadAnchorHumdrum');
     const downloadMEITag = document.querySelector('#downloadAnchorMEI');
@@ -195,3 +219,5 @@
     shopItUpperBtn.addEventListener("click", shopItUpper);
     shopItLowerBtn.addEventListener("click", shopItLower);
     hideChordOptionsBtn.addEventListener("click", hideChordOptions);
+    undoBtn.addEventListener("click", undo);
+    redoBtn.addEventListener("click", redo);

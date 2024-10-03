@@ -18,6 +18,14 @@ MAX_INT: int = 9223372036854775807
 MAX_OFFSETQL: OffsetQL = opFrac(MAX_INT)
 
 
+class HiddenTextExpression(m21.base.Music21Object):
+    # Necessary because MEI doesn't support hidden text expressions, so we must hide
+    # these from the MEI exporter by enclosing them in another object.
+    def __init__(self, te: m21.expressions.TextExpression, **keywords):
+        super().__init__(**keywords)
+        self.te = te
+
+
 class MusicEngineException(Exception):
     pass
 
@@ -1231,7 +1239,9 @@ class MusicEngineUtilities:
         return post
 
     @staticmethod
-    def freezeScore(score: m21.stream.Score) -> bytes:
+    def freezeScore(score: m21.stream.Score | None) -> bytes | None:
+        if score is None:
+            return None
         sf = StreamFreezer(score)
         output: str | bytes = sf.write(fmt='pickle', zipType='zlib')
         if t.TYPE_CHECKING:
@@ -1240,10 +1250,41 @@ class MusicEngineUtilities:
         return output
 
     @staticmethod
-    def thawScore(frozenScore: bytes) -> m21.stream.Score | None:
+    def thawScore(frozenScore: bytes | None) -> m21.stream.Score | None:
+        if frozenScore is None:
+            return None
         st = StreamThawer()
         st.open(frozenScore, zipType='zlib')
         return st.stream
+
+    @staticmethod
+    def showHideChordOptions(score: m21.stream.Score, hide: bool):
+        container: m21.stream.Stream | None = None
+        offset: OffsetQL
+
+        if hide:
+            for te in score[m21.expressions.TextExpression]:
+                if hasattr(te, 'me_chordsymbol'):
+                    # te is a chordOption, hide it
+                    container = score.containerInHierarchy(te, setActiveSite=False)
+                    if container is None:
+                        # should never happen, but if so, just skip it.
+                        continue
+                    offset = te.getOffsetInHierarchy(container)
+                    teHidden = HiddenTextExpression(te)
+                    container.remove(te)
+                    container.insert(offset, teHidden)
+        else:
+            # show
+            for teHidden in score[HiddenTextExpression]:
+                if teHidden.te is not None and hasattr(teHidden.te, 'me_chordsymbol'):
+                    container = score.containerInHierarchy(teHidden, setActiveSite=False)
+                    if container is None:
+                        # should never happen, but if so, just skip it.
+                        continue
+                    offset = teHidden.getOffsetInHierarchy(container)
+                    container.remove(teHidden)
+                    container.insert(offset, teHidden.te)
 
     @staticmethod
     def copyObject(obj: m21.base.Music21Object) -> m21.base.Music21Object:

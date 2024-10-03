@@ -4,7 +4,6 @@ import zlib
 import pickle
 
 import music21 as m21
-from music21.common.numberTools import OffsetQL
 
 import converter21
 
@@ -16,14 +15,6 @@ from app import MusicEngineUtilities
 
 # Register the Humdrum and MEI readers/writers from converter21
 converter21.register()
-
-class HiddenTextExpression(m21.base.Music21Object):
-    # Necessary because MEI doesn't support hidden text expressions, so we must hide
-    # these from the MEI exporter.
-    def __init__(self, te: m21.expressions.TextExpression, **keywords):
-        super().__init__(**keywords)
-        self.te = te
-
 
 class ScoreState:
     def __init__(self) -> None:
@@ -120,9 +111,12 @@ class MusicEngine:
 
         # note that we do a freezeScore here so that we can just freeze the undoList
         # later without having to treat embedded scores specially.
+        frozenScore: bytes | None = None
+        if self.m21Score is not None:
+            frozenScore = MusicEngineUtilities.freezeScore(self.m21Score)
         self.undoList.append({
             'command': 'restore',
-            'score': MusicEngineUtilities.freezeScore(self.m21Score),
+            'score': frozenScore,
             'scoreState': self.scoreState
         })
 
@@ -155,32 +149,7 @@ class MusicEngine:
         if self.m21Score is None:
             raise MusicEngineException('Cannot show/hide chord option: there is no score.')
 
-        container: m21.stream.Stream | None = None
-        offset: OffsetQL
-
-        if hide:
-            for te in self.m21Score[m21.expressions.TextExpression]:
-                if hasattr(te, 'me_chordsymbol'):
-                    # te is a chordOption, hide it
-                    container = self.m21Score.containerInHierarchy(te, setActiveSite=False)
-                    if container is None:
-                        # should never happen, but if so, just skip it.
-                        continue
-                    offset = te.getOffsetInHierarchy(container)
-                    teHidden = HiddenTextExpression(te)
-                    container.remove(te)
-                    container.insert(offset, teHidden)
-        else:
-            # show
-            for teHidden in self.m21Score[HiddenTextExpression]:
-                if teHidden.te is not None and hasattr(teHidden.te, 'me_chordsymbol'):
-                    container = self.m21Score.containerInHierarchy(teHidden, setActiveSite=False)
-                    if container is None:
-                        # should never happen, but if so, just skip it.
-                        continue
-                    offset = teHidden.getOffsetInHierarchy(container)
-                    container.remove(teHidden)
-                    container.insert(offset, teHidden.te)
+        MusicEngineUtilities.showHideChordOptions(self.m21Score, hide)
 
         undoCommand: str
         if hide:
@@ -191,3 +160,80 @@ class MusicEngine:
         self.undoList.append({
             'command': undoCommand,
         })
+
+    def _undoRedo(self, doList: list[dict[str, t.Any]], otherList: list[dict[str, t.Any]]):
+        # doList is the list of things to do (pop off the thing to do from this list)
+        # otherList is the list where we append the opposite thing to do (after doing it)
+        if not doList:
+            # nothing to do
+            return
+
+        # get the thing to do
+        doItem: dict[str, t.Any] = doList.pop()
+
+        if doItem['command'] == 'restore':
+            oldScore: m21.stream.Score | None = self.m21Score
+            oldScoreState: ScoreState = self.scoreState
+            if doItem['score'] is None:
+                self.m21Score = None
+            else:
+                self.m21Score = MusicEngineUtilities.thawScore(doItem['score'])
+            self.scoreState = doItem['scoreState']
+            # now append the opposite operation to the other list
+            frozenScore: bytes | None = None
+            if oldScore is not None:
+                frozenScore = MusicEngineUtilities.freezeScore(oldScore)
+            otherList.append({
+                'command': 'restore',
+                'score': frozenScore,
+                'scoreState': oldScoreState,
+            })
+
+        elif doItem['command'] == 'transpose':
+            if self.m21Score is None:
+                return
+            semitones: int = doItem['semitones']
+            MusicEngineUtilities.transposeInPlace(self.m21Score, semitones, approximate=False)
+            # now append the opposite operation to the other list
+            otherList.append({
+                'command': 'transpose',
+                'semitones': -semitones,
+            })
+
+        elif doItem['command'] == 'chooseChordOption':
+            if self.m21Score is None:
+                return
+            if self.scoreState.shoppedPartRanges is None:
+                return
+
+            optionId: str = doItem['optionId']
+            undoOptionId: str = MusicEngineUtilities.chooseChordOption(
+                self.m21Score, optionId, self.scoreState.shoppedPartRanges
+            )
+            # now append the opposite operation to the other list
+            otherList.append({
+                'command': 'chooseChordOption',
+                'optionId': undoOptionId
+            })
+
+        elif doItem['command'] in ('hideChordOptions', 'showChordOptions'):
+            if self.m21Score is None:
+                return
+
+            hide: bool = doItem['command'].startswith('hide')
+            MusicEngineUtilities.showHideChordOptions(self.m21Score, hide)
+            # now append the opposite operation to the other list
+            oppositeCommand: str
+            if hide:
+                oppositeCommand = 'showChordOptions'
+            else:
+                oppositeCommand = 'hideChordOptions'
+            otherList.append({
+                'command': oppositeCommand,
+            })
+
+    def undo(self):
+        self._undoRedo(doList=self.undoList, otherList=self.redoList)
+
+    def redo(self):
+        self._undoRedo(doList=self.redoList, otherList=self.undoList)
