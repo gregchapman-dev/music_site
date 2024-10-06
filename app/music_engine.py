@@ -2,6 +2,7 @@ import typing as t
 # import sys
 import zlib
 import pickle
+from copy import deepcopy  # , copy
 
 import music21 as m21
 
@@ -117,7 +118,7 @@ class MusicEngine:
         self.undoList.append({
             'command': 'restore',
             'score': frozenScore,
-            'scoreState': self.scoreState
+            'scoreState': deepcopy(self.scoreState)
         })
 
         self.m21Score = shopped
@@ -173,7 +174,7 @@ class MusicEngine:
 
         if doItem['command'] == 'restore':
             oldScore: m21.stream.Score | None = self.m21Score
-            oldScoreState: ScoreState = self.scoreState
+            oldScoreState: ScoreState = deepcopy(self.scoreState)
             if doItem['score'] is None:
                 self.m21Score = None
             else:

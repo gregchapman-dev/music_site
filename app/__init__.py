@@ -22,6 +22,7 @@ from .music_engine_utilities import PartName
 from .music_engine_utilities import VocalRange
 from .music_engine_utilities import MusicEngineUtilities
 from .music_engine import MusicEngine
+from .music_engine import ScoreState
 
 # Factory function.  flask knows how to find this (it has a standard
 # name) when passed music_site on the flask command line, e.g.
