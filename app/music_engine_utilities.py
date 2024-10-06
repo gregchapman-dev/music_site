@@ -1613,7 +1613,11 @@ class MusicEngineUtilities:
                         # change the root/bass of c21_full_text to match the new cs.root()/bass()
                         M21Utilities.updateChordSymbolFullText(e)
 
-            elif isinstance(e, m21.expressions.TextExpression):
+            elif isinstance(e, (m21.expressions.TextExpression, HiddenTextExpression)):
+                if isinstance(e, HiddenTextExpression):
+                    # we want to transpose the text expression hidden inside
+                    e = e.te
+
                 if hasattr(e, 'me_chordsymbol'):
                     # transpose the chordsymbol, and update the TextExpression to match
                     e.me_chordsymbol.transpose(intv, inPlace=True)

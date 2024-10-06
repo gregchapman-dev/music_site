@@ -115,6 +115,17 @@
         });
     }
 
+    function showChordOptions() {
+        formData = new FormData();
+        formData.append('command', 'showChordOptions');
+        fetch(
+            '/command',
+            {method: 'POST', body: formData}
+        ).then( async (resp) => {
+            await processResponse(resp);
+        });
+    }
+
     function htmlDecode(input) {
         var doc = new DOMParser().parseFromString(input, "text/html");
         return doc.documentElement.textContent;
@@ -196,6 +207,7 @@
     const shopItUpperBtn = document.querySelector('#shopItUpper');
     const shopItLowerBtn = document.querySelector('#shopItLower');
     const hideChordOptionsBtn = document.querySelector('#hideChordOptions');
+    const showChordOptionsBtn = document.querySelector('#showChordOptions');
     const undoBtn = document.querySelector('#undo')
     const redoBtn = document.querySelector('#redo')
     const downloadMusicXMLTag = document.querySelector('#downloadAnchorMusicXML');
@@ -219,5 +231,6 @@
     shopItUpperBtn.addEventListener("click", shopItUpper);
     shopItLowerBtn.addEventListener("click", shopItLower);
     hideChordOptionsBtn.addEventListener("click", hideChordOptions);
+    showChordOptionsBtn.addEventListener("click", showChordOptions);
     undoBtn.addEventListener("click", undo);
     redoBtn.addEventListener("click", redo);

@@ -182,6 +182,16 @@ def command() -> dict:
             print(f'hideChordOptions-{sessionUUID} response: Failed to hide chord options: {e}')
             return produceErrorResult(f'Failed to hide chord options: {e}')
 
+    elif cmd == 'showChordOptions':
+        try:
+            print(f'showChordOptions-{sessionUUID} response: Showing chord options')
+            me.showChordOptions()
+            result = produceResultScores(me, session)
+            print(f'showChordOptions-{sessionUUID} response: Success')
+        except Exception as e:
+            print(f'showChordOptions-{sessionUUID} response: Failed to show chord options: {e}')
+            return produceErrorResult(f'Failed to show chord options: {e}')
+
     elif cmd == 'undo':
         try:
             print(f'undo-{sessionUUID} response: Undoing')
