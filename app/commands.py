@@ -64,7 +64,7 @@ def printFrozenMusicEngine(frozenMe: bytes | None):
         printIndexedDoItem(i, redo)
 
 def printIndexedDoItem(idx: int, do: dict[str, t.Any]):
-    if do['command'] == 'restore':
+    if 'command' in do and do['command'] == 'restore':
         score: m21.stream.Score | None = MusicEngineUtilities.thawScore(do['score'])
         scoreState: ScoreState = do['scoreState']
         print(f"        {idx}: 'command': 'restore'")
