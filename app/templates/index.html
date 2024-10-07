@@ -33,30 +33,30 @@
             id="fileElem"
             accept=".musicxml,.xml,.mxl,.krn,.mei"
             style="display:none" />
-        <button id="fileSelect" type="button" class="btn btn-primary" role="button">Upload score (MusicXML, Humdrum, MEI) </button>
+        <button id="fileSelect" type="button" class="btn btn-outline-primary" role="button">Upload score (MusicXML, Humdrum, MEI) </button>
     </div>
     <div class="btn-toolbar mt-2" role="toolbar" aria-label="Operations">
         <div class="btn-group me-2" role="group" aria-label="Score modification">
-            <button id="shopItUpper" type="button" class="btn btn-primary">Shop it! (SSAA)</button>
-            <button id="shopItLower" type="button" class="btn btn-primary">Shop it! (TTBB)</button>
-            <button id="transpose" type="button" class="btn btn-primary">Transpose</button>
+            <button id="shopItUpper" type="button" class="btn btn-outline-primary">Shop it! (SSAA)</button>
+            <button id="shopItLower" type="button" class="btn btn-outline-primary">Shop it! (TTBB)</button>
+            <button id="transpose" type="button" class="btn btn-outline-primary">Transpose</button>
         </div>
         <div class="btn-group me-2" role="group" aria-label="Chord options">
-            <button id="hideChordOptions" type="button" class="btn btn-primary">Hide chord options</button>
-            <button id="showChordOptions" type="button" class="btn btn-primary">Show chord options</button>
+            <button id="hideChordOptions" type="button" class="btn btn-outline-primary">Hide chord options</button>
+            <button id="showChordOptions" type="button" class="btn btn-outline-primary">Show chord options</button>
         </div>
         <div class="btn-group me-2" role="group" aria-label="Undo redo">
-            <button id="undo" type="button" class="btn btn-primary">Undo</button>
-            <button id="redo" type="button" class="btn btn-primary">Redo</button>
+            <button id="undo" type="button" class="btn btn-outline-primary">Undo</button>
+            <button id="redo" type="button" class="btn btn-outline-primary">Redo</button>
         </div>
     </div>
     <div class="btn-toolbar mt-2" role="toolbar" aria-label="Download score">
         <div class="btn-group" role="group" aria-label="Download score">
-            <a id="downloadAnchorMusicXML" class="btn btn-primary"
+            <a id="downloadAnchorMusicXML" class="btn btn-outline-primary"
                 download href="{{ url_for('musicxml') }}">Download MusicXML</a>
-            <a id="downloadAnchorHumdrum" class="btn btn-primary"
+            <a id="downloadAnchorHumdrum" class="btn btn-outline-primary"
                 download href="{{ url_for('humdrum') }}">Download Humdrum</a>
-            <a id="downloadAnchorMEI" class="btn btn-primary"
+            <a id="downloadAnchorMEI" class="btn btn-outline-primary"
                 download href="{{ url_for('mei') }}">Download MEI</a>
         </div>
     </div>
