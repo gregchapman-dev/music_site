@@ -33,12 +33,12 @@ def index() -> Response | str:
         sessionUUID = str(uuid.uuid4())
         createNewAnonymousSession(sessionUUID)
         # return the sessionUUID as a cookie in the response
-        oneMonth: int = 31 * 24 * 3600
+        # oneMonth: int = 31 * 24 * 3600
         resp.set_cookie(
             'sessionUUID',
             value=sessionUUID,
-            max_age=oneMonth,
-            secure=True,
+            # max_age=oneMonth,  # commented out so it only lasts as long as the browser session
+            secure=True,  # Needs to be False to create a cookie from localhost
             httponly=True
         )
         print(f'index response: new uuid = {sessionUUID}, no initial score')
